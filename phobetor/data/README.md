@@ -1,6 +1,6 @@
 # LichSpec / Phobetor: yıldız tespiti veri seti (v0.2)
 
-Bu klasördeki betikler, LichSpec projesinin görüntü/yıldız modeli **Phobetor** için hazırlanan eğitim ve test verisidir. İki bölümden oluşur. Görüntü ve etiket dosyaları (yaklaşık 6 GB) repoya eklenmez. Aşağıdaki komutlarla yeniden üretilebilirler.
+Bu klasördeki betikler, LichSpec projesinin görüntü/yıldız modeli **Phobetor** için eğitim ve test verisini hazırlar. Veri iki bölümden oluşur. Görüntü ve etiket dosyaları (yaklaşık 6 GB) repoya eklenmez, aşağıdaki komutlarla yeniden üretilebilir.
 
 1. **`data_hst/` (ana veri):** gökyüzünün her bölgesine yayılmış 634 Hubble alanı. Etiketler Gaia DR3'ten ve Hubble Source Catalog'dan (HSC) alınır.
 2. **`data/` (pilot):** 4 alan için aynı bölgenin SDSS, Pan-STARRS, Legacy Survey ve Hubble görüntüleri. Gerçek düşük kaliteli teleskoplarla karşılaştırma yapmak için kullanılır.
