@@ -96,4 +96,6 @@ python jwst_survey.py select --n 30 --out data_jwst
 python jwst_survey.py fetch --out data_jwst --workers 3
 ```
 
+Ayrım için `python unify_split.py --ref data_hst --data data_wfc3 data_decaps data_jwst --variants 3`: ek kaynaklar ACS ile aynı gökyüzü hücresi → eğitim/doğrulama/test eşlemesini kullanır, yani bir test bölgesi hangi teleskoptan gelirse gelsin eğitime girmez.
+
 DECaPS2 ve JWST, MAST kesit servisini kullanmadığı için hızlı iner (her biri yaklaşık 10-20 dakika). Hubble (ACS/WFC3) indirmeleri MAST'ın o anki yoğunluğuna bağlı olarak birkaç saat sürebilir.
