@@ -99,3 +99,13 @@ python jwst_survey.py fetch --out data_jwst --workers 3
 Ayrım için `python unify_split.py --ref data_hst --data data_wfc3 data_decaps data_jwst --variants 3`: ek kaynaklar ACS ile aynı gökyüzü hücresi → eğitim/doğrulama/test eşlemesini kullanır, yani bir test bölgesi hangi teleskoptan gelirse gelsin eğitime girmez.
 
 DECaPS2 ve JWST, MAST kesit servisini kullanmadığı için hızlı iner (her biri yaklaşık 10-20 dakika). Hubble (ACS/WFC3) indirmeleri MAST'ın o anki yoğunluğuna bağlı olarak birkaç saat sürebilir.
+
+---
+
+## 4. Sade çıktı (PNG + CSV)
+
+```bash
+python export_png.py --out "veri seti hazir" data_hst data_wfc3 data_decaps data_jwst
+```
+
+`train/ val/ test/ test_bozulmus/` klasörleri oluşur. Her birinde `images/*.png` (16 bit gri tonlu) ve aynı adlı `labels/*.csv` dosyaları bulunur. CSV'de yalnızca görüntüde görünen yıldızlar yer alır: `x, y` (sol üst köşe 0,0), `parlaklik_mag`, `kaynak`, `gaia_id`. `index.csv` dosyası tüm resimleri listeler.
