@@ -109,3 +109,14 @@ python export_png.py --out "veri seti hazir" data_hst data_wfc3 data_decaps data
 ```
 
 `train/ val/ test/ test_bozulmus/` klasörleri oluşur. Her birinde `images/*.png` (16 bit gri tonlu) ve aynı adlı `labels/*.csv` dosyaları bulunur. CSV'de yalnızca görüntüde görünen yıldızlar yer alır: `x, y` (sol üst köşe 0,0), `parlaklik_mag`, `kaynak`, `gaia_id`. `index.csv` dosyası tüm resimleri listeler.
+
+---
+
+## 5. Renkli JWST (3 kızılötesi filtre)
+
+```bash
+python jwst_multiband.py --src data_jwst/all_jwst_fields.csv --n 300 --out data_jwst_mb --workers 4
+python export_jwst_rgb.py --src data_jwst_mb --ref data_hst/split.csv --out "veri seti hazir"
+```
+
+Her alan için mavi kanal F115W/F150W, yeşil kanal F200W, kırmızı kanal F444W/F356W/F277W'dir. Uzun dalga bandı F200W ızgarasına yeniden örneklenir. `raw/` içinde (3,H,W) FITS küpü, `rgb/` içinde renkli PNG bulunur. Etiketler F200W üzerinden üretilir. Son çalıştırmada 273 alan çıktı (199 eğitim, 42 doğrulama, 32 test).
