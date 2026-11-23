@@ -47,10 +47,11 @@ STAR_RICH = {"STELLAR CLUSTER", "STAR", "EXT-STAR", "EXT-CLUSTER", "ISM", "EXT-M
 # ---------------------------------------------------------------------------
 # 1-2) Alan secimi
 # ---------------------------------------------------------------------------
-def list_hap_fields():
+def list_hap_fields(instrument="ACS/WFC"):
     q = ("SELECT obs_id, target_name, target_classification, s_ra, s_dec, t_exptime, filters, t_min "
-         "FROM dbo.ObsPointing WHERE obs_collection='HST' AND instrument_name='ACS/WFC' "
-         "AND provenance_name='HAP-SVM' AND (filters='F606W' OR filters='F814W') AND t_exptime>300")
+         f"FROM dbo.ObsPointing WHERE obs_collection='HST' AND instrument_name='{instrument}' "
+         "AND provenance_name='HAP-SVM' AND (filters='F606W' OR filters='F814W' OR filters='F555W') "
+         "AND t_exptime>300")
     r = requests.post(MAST_TAP, data=dict(LANG="ADQL", QUERY=q), timeout=900, headers=UA)
     r.raise_for_status()
     t = parse_single_table(io.BytesIO(r.content)).to_table().to_pandas()
@@ -74,8 +75,14 @@ def dedupe(t, radius_arcmin=3.0):
     return t.iloc[keep].reset_index(drop=True)
 
 
-def select_fields(n, seed=0):
-    t = dedupe(list_hap_fields())
+def select_fields(n, seed=0, instrument="ACS/WFC", exclude=None):
+    t = dedupe(list_hap_fields(instrument))
+    if exclude is not None and len(exclude):
+        # baska bir secimde (or. ACS) zaten olan alanlara 3' den yakin olanlari at
+        c = SkyCoord(t.s_ra.values * u.deg, t.s_dec.values * u.deg)
+        e = SkyCoord(exclude.s_ra.values * u.deg, exclude.s_dec.values * u.deg)
+        _, d, _ = c.match_to_catalog_sky(e)
+        t = t[d.arcmin > 3].reset_index(drop=True)
     g = SkyCoord(t.s_ra.values * u.deg, t.s_dec.values * u.deg).galactic
     t["gal_l"], t["gal_b"] = g.l.deg, g.b.deg
     t["cls"] = t.target_classification.str.split(";").str[0].str.strip().str.upper()
@@ -93,7 +100,6 @@ def select_fields(n, seed=0):
     a = spread(t[t.star_rich], n_rich)
     b = spread(t[~t.index.isin(a.index)], n - len(a))
     sel = pd.concat([a, b]).reset_index(drop=True)
-    sel["field"] = [f"hst{i:04d}" for i in range(len(sel))]
     return t, sel
 
 
@@ -106,7 +112,7 @@ def fetch_hst_cut(ra, dec):
     if not r.content.startswith(b"PK"):
         raise RuntimeError("HAP kesiti yok: " + r.text[:100])
     z = zipfile.ZipFile(io.BytesIO(r.content))
-    pref = ["f606w", "f814w", "f625w", "f555w", "f775w", "f475w", "f850lp"]
+    pref = ["f606w", "f814w", "f625w", "f555w", "f775w", "f475w", "f850lp", "f600lp", "f438w"]
     best, best_key = None, None
     for n in z.namelist():
         if not (n.startswith("hst_cutout_skycell") and n.endswith(".fits")):
@@ -145,8 +151,8 @@ def query_hsc(ra, dec, radius_deg):
             if i == 2:
                 raise
             time.sleep(5 * (i + 1))
-    cols = ["MatchID", "MatchRA", "MatchDec", "CI", "NumImages", "A_F606W", "A_F814W", "W3_F555W"
-            if "W3_F555W" in t.colnames else "A_F555W"]
+    cols = ["MatchID", "MatchRA", "MatchDec", "CI", "NumImages", "A_F606W", "A_F814W", "A_F555W",
+            "W3_F606W", "W3_F814W", "W3_F555W"]
     df = t[[c for c in cols if c in t.colnames]].to_pandas()
     return df
 
@@ -170,8 +176,10 @@ def label_field(data, hdr, gaia, hsc):
                            is_star=gaia_is_star(gaia), ci=np.nan, hst_mag=np.nan))[ok]
     if len(hsc):
         x, y, ok = to_pix(hsc.MatchRA.values, hsc.MatchDec.values)
-        mag = hsc.get("A_F606W", pd.Series(np.nan, index=hsc.index)).fillna(
-            hsc.get("A_F814W", pd.Series(np.nan, index=hsc.index)))
+        mag = pd.Series(np.nan, index=hsc.index)
+        for col in ("A_F606W", "W3_F606W", "A_F814W", "W3_F814W", "A_F555W", "W3_F555W"):
+            if col in hsc:
+                mag = mag.fillna(hsc[col])
         lh = pd.DataFrame(dict(catalog="hsc", source_id=hsc.MatchID.astype(str).values, x=x, y=y,
                                ra=hsc.MatchRA.values, dec=hsc.MatchDec.values, g_mag=np.nan, bp_rp=np.nan,
                                # ACS/WFC icin nokta kaynak konsantrasyon indeksi ~0.9-1.3
@@ -213,12 +221,17 @@ def main():
     ap.add_argument("--n", type=int, default=300)
     ap.add_argument("--workers", type=int, default=3)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--instrument", default="ACS/WFC", help="ACS/WFC veya WFC3/UVIS")
+    ap.add_argument("--prefix", default="hst", help="alan adi on eki (or. wfc3)")
+    ap.add_argument("--exclude", default=None, help="tekrar edilmeyecek alanlar (fields.csv)")
     a = ap.parse_args()
     out = Path(a.out)
     for s in ("raw", "labels", "gaia"):
         (out / s).mkdir(parents=True, exist_ok=True)
     if a.cmd == "select":
-        allf, sel = select_fields(a.n, a.seed)
+        exc = pd.read_csv(a.exclude) if a.exclude else None
+        allf, sel = select_fields(a.n, a.seed, a.instrument, exc)
+        sel["field"] = [f"{a.prefix}{i:04d}" for i in range(len(sel))]
         allf.to_csv(out / "all_hap_fields.csv", index=False)
         sel.to_csv(out / "fields.csv", index=False)
         print(f"Toplam tekil HST alani: {len(allf)}, secilen: {len(sel)} "

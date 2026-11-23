@@ -77,3 +77,23 @@ python make_montage.py data
 ## Notlar
 - Gaia sorguları önce Heidelberg ARI aynasına (gaia.ari.uni-heidelberg.de), sonra ESA arşivine gider.
 - FITS başlıklarındaki `ORBI_*` anahtarları projenin eski adından kaldı. Veriyi yeniden üretmemek için değiştirilmedi.
+
+---
+
+## 3. Ek yüksek kaliteli kaynaklar
+
+| Klasör | Betik | İçerik |
+|---|---|---|
+| `data_wfc3/` | `hst_survey.py --instrument WFC3/UVIS --prefix wfc3 --exclude data_hst/fields.csv` | ACS setiyle çakışmayan 400 Hubble WFC3/UVIS alanı (Gaia + HSC etiketli) |
+| `data_decaps/` | `decaps_survey.py --n 150` | DECaPS2 güney Samanyolu düzlemi, kalabalık yıldız alanları (4.4'×4.4', r bandı, Gaia etiketli) |
+| `data_jwst/` | `jwst_survey.py select/fetch --n 30` | JWST NIRCam F200W pilotu. Mozaiğin yalnızca 2000×2000 px'lik kesiti HTTP aralık isteğiyle okunur. Gaia + `jwst_sep` (temiz JWST görüntüsünde SNR>10 nokta kaynak, yarı otomatik etiket) |
+
+```bash
+python hst_survey.py select --n 400 --instrument WFC3/UVIS --prefix wfc3 --exclude data_hst/fields.csv --out data_wfc3
+python hst_survey.py fetch --out data_wfc3 --workers 4
+python decaps_survey.py --n 150 --out data_decaps --workers 4
+python jwst_survey.py select --n 30 --out data_jwst
+python jwst_survey.py fetch --out data_jwst --workers 3
+```
+
+DECaPS2 ve JWST, MAST kesit servisini kullanmadığı için hızlı iner (her biri yaklaşık 10-20 dakika). Hubble (ACS/WFC3) indirmeleri MAST'ın o anki yoğunluğuna bağlı olarak birkaç saat sürebilir.
