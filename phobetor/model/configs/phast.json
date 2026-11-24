@@ -1,0 +1,23 @@
+{
+ "_aciklama": "PHAST (Hubble ACS, Andromeda guney diski). ONCE inspect_data.py ciktisina bakip asagidaki HDU ve sutun adlarini duzelt. Burada yazanlar tahmin.",
+ "bands": ["F475W", "F814W"],
+ "noise": null,
+ "noise_kind": "rms",
+ "flag_hdu": null,
+ "flag_mask": 0,
+ "image_glob": "{split}/goruntuler/*.fits",
+ "label_path": "{split}/etiketler/{name}.csv",
+ "x_col": "x",
+ "y_col": "y",
+ "mag_col": "f814w_vega",
+ "positive": "f814w_gst == 1",
+ "ignore": "f814w_gst != 1",
+ "stretch": 3.0,
+ "heatmap_sigma_px": 1.0,
+ "match_radius_px": 1.5,
+ "ignore_radius_px": 2.0,
+ "crop": 256,
+ "pos_crop_prob": 0.3,
+ "mag_bins": [18, 20, 22, 24, 25, 26, 27, 28, 30],
+ "base_channels": 32
+}
