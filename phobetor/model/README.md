@@ -67,7 +67,10 @@ python evaluate.py --cache cache/euclid --run runs/euclid
 
 Euclid'de "yıldız" = Euclid fotometrik sınıflandırmasında (PHZ) yıldız ve görünür bantta (VIS) da
 tespit edilmiş kaynak. Yalnızca kızılötesinde tespit edilen "yıldız"ların bir kısmı kızılötesi çizgi
-hatalarının üstünde olduğu için yok sayılır; PHZ sınıfı belirsiz olanlar da yok sayılır.
+hatalarının üstünde olduğu için yok sayılır; PHZ sınıfı belirsiz olanlar da yok sayılır. Gaia
+eşleşmesi olduğu hâlde PHZ'nin "galaksi" dediği kaynaklar da yok sayılır: bunların çoğu ışığı doymuş
+parlak yıldızlar (PHZ renkleri doymuş pikselden ölçemediği için yanlış sınıflıyor). Bu kaynakların
+etiketi değiştirilmez; ağa ne "yıldız" ne "yıldız değil" diye öğretilir, ölçümde de sayılmazlar.
 
 ## Hubble (PHAST) modu
 
