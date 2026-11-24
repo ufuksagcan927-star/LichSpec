@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LichSpec Gökyüzü</title>
+  <link rel="icon" href="assets/favicon.ico">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./"><img src="assets/logo.svg" alt="" width="28" height="28"><span>LichSpec</span><small>Gökyüzü</small></a>
+    <form id="search" class="search" autocomplete="off">
+      <input id="search-input" type="search" placeholder="Yıldız ara: Vega, α Ori, HIP 32349, 83.63 22.01" aria-label="Yıldız ara">
+      <ul id="search-results" class="search-results" hidden></ul>
+    </form>
+    <div class="top-actions">
+      <select id="survey" aria-label="Gökyüzü görüntüsü"></select>
+      <label class="toggle"><input id="toggle-stars" type="checkbox" checked> Parlak yıldızlar</label>
+      <button id="btn-upload" class="btn primary" type="button">Fotoğraf yükle</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="sky-wrap">
+      <div id="aladin"></div>
+      <div id="sky-status" class="sky-status">Gökyüzü yükleniyor…</div>
+      <div class="legend" aria-hidden="true">
+        <span><i style="background:#9bb0ff"></i>O–B</span>
+        <span><i style="background:#cad7ff"></i>A</span>
+        <span><i style="background:#f8f7ff"></i>F</span>
+        <span><i style="background:#fff4ea"></i>G</span>
+        <span><i style="background:#ffd2a1"></i>K</span>
+        <span><i style="background:#ffad60"></i>M</span>
+      </div>
+    </section>
+
+    <aside id="panel" class="panel">
+      <div id="panel-body">
+        <div class="intro">
+          <h1>Gökyüzüne dokun</h1>
+          <p>Haritadaki bir yıldıza tıkla. LichSpec o yıldızı tanır, ölçülmüş verilerini getirir ve Draugr ne gördüğünü anlatır.</p>
+          <p class="muted">Haritada <b id="star-count">…</b> parlak yıldız modellenmiş durumda (Hipparcos V&nbsp;&lt;&nbsp;7, Gaia DR3 parametreleriyle). Daha sönük bir noktaya tıklarsan Gaia DR3 canlı sorgulanır.</p>
+          <div class="quick">
+            <button data-goto="Sirius">Sirius</button>
+            <button data-goto="Betelgeuse">Betelgeuse</button>
+            <button data-goto="Vega">Vega</button>
+            <button data-goto="Polaris">Polaris</button>
+            <button data-goto="Antares">Antares</button>
+            <button data-goto="Rigel">Rigel</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <dialog id="upload-dialog" class="upload">
+    <form method="dialog" class="upload-head">
+      <h2>Fotoğraftan yıldız bul</h2>
+      <button class="icon" aria-label="Kapat">✕</button>
+    </form>
+    <label id="drop" class="drop">
+      <input id="file" type="file" accept=".fits,.fit,.fts,image/jpeg,image/png,image/tiff">
+      <strong>Görüntüyü buraya bırak ya da seç</strong>
+      <span>FITS (WCS başlıklı) anında çözülür. JPG/PNG için Astrometry.net kullanılır; birkaç dakika sürebilir.</span>
+    </label>
+    <div id="upload-status" class="upload-status" hidden></div>
+    <div id="solve-result" hidden>
+      <div class="solve-meta" id="solve-meta"></div>
+      <div class="solve-grid">
+        <div class="photo-wrap">
+          <img id="photo" alt="Yüklenen görüntü">
+          <svg id="photo-marks"></svg>
+        </div>
+        <ol id="solve-list" class="solve-list"></ol>
+      </div>
+      <div class="solve-actions">
+        <button id="btn-show-on-sky" class="btn primary" type="button">Gökyüzünde göster</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script type="module">
+    import A from "https://cdn.jsdelivr.net/npm/aladin-lite@3.6.5/dist/aladin.js";
+    window.A = A;
+    window.dispatchEvent(new Event("aladin-ready"));
+  </script>
+  <script src="js/draugr.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
