@@ -120,3 +120,34 @@ python export_jwst_rgb.py --src data_jwst_mb --ref data_hst/split.csv --out "ver
 ```
 
 Her alan için mavi kanal F115W/F150W, yeşil kanal F200W, kırmızı kanal F444W/F356W/F277W'dir. Uzun dalga bandı F200W ızgarasına yeniden örneklenir. `raw/` içinde (3,H,W) FITS küpü, `rgb/` içinde renkli PNG bulunur. Etiketler F200W üzerinden üretilir. Son çalıştırmada 273 alan çıktı (199 eğitim, 42 doğrulama, 32 test).
+
+---
+
+## 6. Euclid Q1: tek uydu, 4 bant, resmi etiketler (`euclid_v1/`)
+
+Tek uydu (Euclid), aynı iki kamera (VIS + NISP), aynı 4 bant (VIS, Y, J, H) ve aynı işlem hattı. Bütün kesitler aynı yöne bakar ve aynı piksel ölçeğindedir. Etiketler karedeki her kaynak için Euclid'in kendi resmi kataloglarından alınır; betik etiket üretmez.
+
+| | |
+|---|---|
+| Kaynak | Euclid Q1 (Mart 2025), IRSA. DR1 için IRSA'da kesit servisi olmadığından Q1 kullanıldı. |
+| Kesit | 436 kesit, 62 karodan (EDF-Kuzey 258, EDF-Fornax 84, EDF-Güney 94) |
+| Görüntü | 1024×1024 px, 0.1"/px, 12 katmanlı FITS: `SCI_*` (bilimsel), `RMS_*` (gürültü), `FLAG_*` (Euclid piksel bayrakları) |
+| Etiket | `etiketler/<ad>.csv`: `x`, `y`, `sinif` (yildiz / galaksi / kuasar / belirsiz / sahte), olasılıklar, akılar, bayraklar, `vis_det`, `gaia_id` |
+| Sayılar | 161.286 kaynak; 4.077 yıldız (3.305'i VIS'te de bulunmuş), 128.191 galaksi, 12.234 sahte |
+| Ayrım | 2°×2° gökyüzü hücreleri: 298 eğitim, 64 doğrulama, 74 test kesiti (`euclid_tiles_q1.csv`) |
+| Boyut | kesit başına yaklaşık 8 MB (SCI gürültünün 1/16'sı adımla sıkıştırılır, FLAG kayıpsız) |
+
+Eğitim önerisi: pozitif = `sinif == "yildiz"` ve `vis_det == 1`; negatif = galaksi, kuasar, sahte; `belirsiz` ve yalnızca kızılötesinde bulunan (`vis_det == 0`) yıldızlar kayıpta yok sayılır. Yalnızca kızılötesinde bulunan kaynakların bir kısmı kızılötesi izleri boyunca dizilmiş sahte tespitlerdir.
+
+```bash
+python euclid_dataset.py --tiles euclid_tiles_q1.csv --out euclid_v1 --per-tile 8 --workers 3   # kaldığı yerden devam eder
+python euclid_finalize.py euclid_v1 euclid_tiles_q1.csv    # index.csv + README.md
+python euclid_validate.py euclid_v1                        # dosya bütünlüğü
+python euclid_figures.py euclid_v1 euclid_v1/ozet          # özet kontrol resimleri
+```
+
+Notlar:
+- Kataloglar IRSA TAP yerine karo başına resmi dosyalardan okunur (`MER_FINAL_CATALOG/<karo>/EUC_MER_FINAL-CAT_*.fits` ve `PHZ_PF_OUTPUT_FOR_L3/<karo>/EUC_PHZ_CLASSCAT_*.fits`). TAP bu tablolardan satır döndürürken çok yavaştı.
+- Q1'deki 352 karonun 36'sında PHZ sınıflandırma dosyası yok. İlk listedeki 11 karo bu yüzden aynı bölgeden (yoksa aynı bölüme ait başka bölgeden) tam kapsanan karolarla değiştirildi.
+- Kesit merkezleri karo içindeki 5×5'lik adaylardan, katalogda tam kapsama görülenler arasından rastgele seçilir (yıldız sayısına bakılmaz). Görüntünün %5'inden fazlası boş olan kesitler alınmaz.
+- Kesit dosyalarının ayrıntılı açıklaması (FLAG bitleri dahil) veri setinin kendi `README.md` dosyasında.
