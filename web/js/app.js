@@ -64,9 +64,9 @@
     const sv = SURVEYS[0];
     aladin = A.aladin("#aladin", {
       survey: sv.url || sv.cds,
-      fov: 55,
+      fov: 100,
       target: "05 35 17.3 -05 23 28",   // Orion
-      projection: "MOL",
+      projection: "SIN",   // küre görünümü: sürükleyerek 360° döndürülür
       cooFrame: "ICRSd",
       showReticle: false,
       showCooGridControl: true,
