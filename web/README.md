@@ -23,7 +23,8 @@ WCS başlığı olan FITS dosyaları anahtar olmadan, sunucuda anında çözül�
 |---|---|---|
 | Gökyüzü | Aladin Lite v3, HiPS karolarını akıtır; tüm gökyüzü siteye gömülmez, yalnızca ekrandaki karolar indirilir | DSS2, Mellinger, Pan-STARRS, SDSS, 2MASS, AllWISE |
 | Parlak yıldız modeli | 15.397 yıldız (Hipparcos V < 7) haritada tıklanabilir, aranabilir, çevrimdışı | `web/data/bright_stars.json` |
-| Sönük yıldızlar | Boş bir noktaya tıklayınca Gaia DR3 canlı sorgulanır (sunucu üzerinden, ESA TAP'ta CORS yok) | `GET /api/gaia/cone` |
+| Kayıtlı tüm yıldızlar | 2,5°'nin altına yakınlaşınca görünen alandaki Gaia DR3 yıldızları (en parlak 3.000) akar; yakınlaştıkça daha sönükleri gelir. Böylece Gaia'nın 1,8 milyar yıldızının hepsine ulaşılır. Tıklanan yıldızın kartı, ölçülmüş tüm parametrelerinden (Teff, log g, [M/H], element oranları, FLAME kütle/yaş/ışınım gücü, dikine hız) otomatik oluşur | `GET /api/gaia/field`, `GET /api/gaia/source/<id>` |
+| Gaia yansıları | ESA arşivi kapalıysa (ör. DR4 hazırlığı) Heidelberg ARI yansısına otomatik geçilir; sıra `GAIA_TAP_MIRRORS` ile değişir | `server/app.py` |
 | Fotoğraf → yıldız | FITS WCS ya da Astrometry.net ile koordinat çözümü, ardından katalog + Gaia DR3 eşleştirme, fotoğraf üzerinde işaretleme | `POST /api/solve` |
 | Draugr (şablon) | Yalnızca kartta bulunan ölçülmüş alanlardan Türkçe anlatım; olmayan veri hakkında cümle kurmaz | `web/js/draugr.js` |
 | Poltergeist (ön sürüm) | Gaia RVS [M/H] → kütlece H/He/metal oranı; Gaia element oranları; tayf sınıfından beklenen çizgiler (açıkça "ölçülmedi" etiketli) | `web/js/draugr.js` |

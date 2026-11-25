@@ -115,6 +115,11 @@
     if (s.teff_s) { d.teff = s.teff_s; d.src.teff = "Gaia DR3 RVS tayfı"; }
     else if (s.teff) { d.teff = s.teff; d.src.teff = "Gaia DR3 fotometri"; }
     else if (s.bv != null) { d.teff = teffFromBV(s.bv); d.teff_est = true; d.src.teff = "B−V renginden tahmin"; }
+    else if (s.bprp != null && s.bprp > 0.39 && s.bprp < 1.5) {
+      const C = s.bprp;
+      d.teff = 5040 / (0.4929 + 0.5092 * C - 0.0353 * C * C); d.teff_est = true;
+      d.src.teff = "BP−RP renginden tahmin (toz ihmal)";
+    }
 
     // Işınım sınıfı tayf türünde yoksa ölçülen yüzey çekiminden (log g) kaba sınıf
     const logg = s.logg_s ?? s.logg;
@@ -201,6 +206,15 @@
       p.push(`Uzaklığı ve parlaklığından mutlak kadiri ≈ ${fmt(d.absmag, 2)} çıkıyor: ${Ltxt} kadar ışık yayıyor (yıldızlararası toz ihmal edildi).`);
     }
     if (s.rad) p.push(`Gaia DR3'e göre yarıçapı Güneş'in ≈ ${fmt(s.rad, 1)} katı.`);
+    if (s.mass != null || s.age != null || s.lumf != null) {
+      const f = [];
+      if (s.lumf != null) f.push(`Güneş'in ${s.lumf >= 10 ? fmtInt(s.lumf) : fmt(s.lumf, 2)} katı ışınım gücüne`);
+      if (s.mass != null) f.push(`${fmt(s.mass, 2)} Güneş kütlesine`);
+      if (s.age != null) f.push(`yaklaşık ${fmt(s.age, 1)} milyar yıllık bir yaşa`);
+      p.push(`Gaia'nın evrim modeli (FLAME) bu yıldıza ${f.join(", ")} sahip diyor.`);
+    }
+    if (s.rv != null) p.push(`Bize ${s.rv < 0 ? "yaklaşıyor" : "uzaklaşıyor"}: saniyede ${fmt(Math.abs(s.rv), 1)} km (Gaia RVS dikine hızı).`);
+    if (s.ruwe != null && s.ruwe > 1.4) p.push(`Gaia astrometrisinde sapma yüksek (RUWE = ${fmt(s.ruwe, 2)}); görünmeyen bir eşi olabilir.`);
 
     if (d.mh != null) {
       const rel = d.mh > 0.15 ? "Güneş'ten daha metal zengin" : d.mh < -0.5 ? "Güneş'e göre belirgin biçimde metal fakir — muhtemelen eski bir yıldız kuşağından" : d.mh < -0.15 ? "Güneş'ten biraz metal fakir" : "Güneş'e benzer metal bolluğunda";

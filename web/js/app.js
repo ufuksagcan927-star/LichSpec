@@ -15,7 +15,7 @@
     { id: "wise", label: "AllWISE (orta kızılötesi)", url: "https://irsa.ipac.caltech.edu/data/hips/CDS/AllWISE/RGB-W4-W2-W1", cds: "CDS/P/allWISE/color" },
   ];
 
-  let aladin, starCat, footprintLayer;
+  let aladin, starCat, gaiaCat, footprintLayer;
   let STARS = [];          // nesne dizisi
   let byHip = new Map();
   let lastSolve = null;
@@ -83,12 +83,17 @@
     aladin.addCatalog(starCat);
     starCat.addSources(STARS.map((s) => A.source(s.ra, s.dec, { star: s, name: D.title(s) })));
 
+    // Gaia DR3 katmanı: yakınlaşınca görünen alandaki yıldızlar sunucudan akar (1,8 milyar kaynak).
+    gaiaCat = A.catalog({ name: "Gaia DR3 (1,8 milyar yıldız)", shape: drawGaia, sourceSize: 8, color: "#8be9ef", onClick: null });
+    aladin.addCatalog(gaiaCat);
+
     footprintLayer = A.graphicOverlay({ color: "#19c9d4", lineWidth: 2, name: "Yüklenen fotoğraf" });
     aladin.addOverlay(footprintLayer);
 
     let clickedObject = false;
     aladin.on("objectClicked", (obj) => {
       if (obj && obj.data && obj.data.star) { clickedObject = true; showStar(obj.data.star, { goto: false }); }
+      else if (obj && obj.data && obj.data.gaia) { clickedObject = true; openGaiaStar(obj.data.gaia); }
     });
     aladin.on("click", (e) => {
       if (!e || e.isDragging) return;
@@ -105,9 +110,84 @@
       const fov = aladin.getFov()[0];
       status.textContent = `RA ${D.fmt(ra, 3)}°  Dec ${D.fmt(dec, 3)}°  ·  görüş alanı ${fov >= 1 ? D.fmt(fov, 1) + "°" : D.fmt(fov * 60, 1) + "′"}`;
     };
-    aladin.on("positionChanged", upd);
-    aladin.on("zoomChanged", upd);
+    aladin.on("positionChanged", () => { upd(); scheduleGaia(); });
+    aladin.on("zoomChanged", () => { upd(); scheduleGaia(); });
     upd();
+    scheduleGaia();
+  }
+
+  // -------------------------------------------------------------- Gaia DR3 akışı
+  const GAIA_MAX_FOV = 2.5;   // derece; bundan genişte yalnızca parlak yıldız modeli gösterilir
+  const GAIA_N = 3000;        // alan başına en parlak N yıldız
+  let gaiaTimer = null, gaiaSeq = 0, gaiaKey = "";
+  const gaiaBadge = () => $("#gaia-status");
+
+  function drawGaia(source, ctx) {
+    const g = source.data.gaia;
+    const m = g.phot_g_mean_mag ?? 18;
+    const r = Math.max(1.1, Math.min(5, 4.6 - 0.22 * (m - 8)));
+    ctx.beginPath();
+    ctx.arc(source.x, source.y, r, 0, 2 * Math.PI);
+    ctx.fillStyle = g._c || (g._c = g.bp_rp != null ? D.bvColor(0.85 * g.bp_rp - 0.05) : "#cfe3ff");
+    ctx.globalAlpha = 0.9;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  function scheduleGaia() {
+    clearTimeout(gaiaTimer);
+    gaiaTimer = setTimeout(loadGaiaField, 600);
+  }
+
+  async function loadGaiaField() {
+    const fov = aladin.getFov();
+    const badge = gaiaBadge();
+    if (fov[0] > GAIA_MAX_FOV) {
+      if (gaiaKey) { gaiaCat.removeAll(); gaiaKey = ""; }
+      badge.textContent = `Gaia DR3'ün 1,8 milyar yıldızını görmek için ${D.fmt(GAIA_MAX_FOV, 1)}°'nin altına yakınlaş`;
+      badge.className = "gaia-status hint";
+      return;
+    }
+    const [ra, dec] = aladin.getRaDec();
+    const r = Math.min(3, Math.max(0.01, 0.5 * Math.hypot(fov[0], fov[1])));
+    const key = `${ra.toFixed(3)},${dec.toFixed(3)},${r.toFixed(3)}`;
+    if (key === gaiaKey) return;
+    const seq = ++gaiaSeq;
+    badge.textContent = "Gaia DR3 bu alan için sorgulanıyor…";
+    badge.className = "gaia-status busy";
+    try {
+      const res = await fetch(`api/gaia/field?ra=${ra.toFixed(5)}&dec=${dec.toFixed(5)}&r=${r.toFixed(4)}&n=${GAIA_N}`);
+      const j = await res.json();
+      if (seq !== gaiaSeq) return;               // daha yeni bir istek var
+      if (!j.ok) throw new Error(j.error || res.statusText);
+      gaiaKey = key;
+      gaiaCat.removeAll();
+      gaiaCat.addSources(j.sources.map((g) => A.source(g.ra, g.dec, { gaia: g, name: `Gaia DR3 ${g.source_id}` })));
+      const n = j.sources.length;
+      const faint = n ? j.sources[n - 1].phot_g_mean_mag : null;
+      badge.textContent = j.complete === false || n >= GAIA_N
+        ? `Gaia DR3: bu alanın en parlak ${n.toLocaleString("tr-TR")} yıldızı (G ≤ ${D.fmt(faint, 1)}) · daha sönükler için yakınlaş`
+        : `Gaia DR3: bu alandaki ${n.toLocaleString("tr-TR")} yıldızın hepsi`;
+      badge.className = "gaia-status ok";
+    } catch (e) {
+      if (seq !== gaiaSeq) return;
+      badge.textContent = "Gaia DR3'e şu an ulaşılamıyor: " + e.message;
+      badge.className = "gaia-status err";
+    }
+  }
+
+  /** Gaia yıldızına tıklanınca: önce elimizdeki satırla kartı aç, sonra tüm parametreleri getir. */
+  async function openGaiaStar(g) {
+    showStar(gaiaToStar(g), { goto: false, pending: true });
+    try {
+      const j = await (await fetch(`api/gaia/source/${g.source_id}`)).json();
+      if (!j.ok) throw new Error(j.error);
+      const cur = $("#panel-body").dataset.gaia;
+      if (cur === String(g.source_id)) showStar(gaiaToStar(j.source), { goto: false, keepScroll: true });
+    } catch (e) {
+      const el = $("#gaia-detail-status");
+      if (el) el.textContent = "Ayrıntılı Gaia parametreleri alınamadı: " + e.message;
+    }
   }
 
   function setSurvey(id) {
@@ -146,7 +226,7 @@
   }
 
   // -------------------------------------------------------------- yıldız kartı
-  function showStar(s, { goto = true } = {}) {
+  function showStar(s, { goto = true, pending = false, keepScroll = false } = {}) {
     if (goto) gotoStar(s);
     const d = D.derive(s);
     const body = $("#panel-body");
@@ -166,6 +246,12 @@
     if (s.logg_s ?? s.logg) fact("Yüzey çekimi", `log g = ${D.fmt(s.logg_s ?? s.logg, 2)}`, s.logg_s != null ? "Gaia RVS" : "Gaia fotometri");
     if (s.rad) fact("Yarıçap", `${D.fmt(s.rad, 2)} R☉`, "Gaia DR3");
     if (d.absmag != null) fact("Mutlak kadir", `≈ ${D.fmt(d.absmag, 2)}`, "hesaplandı");
+    if (s.lumf != null) fact("Işınım gücü", `${D.fmt(s.lumf, s.lumf < 10 ? 2 : 0)} L☉`, "Gaia FLAME");
+    if (s.mass != null) fact("Kütle", `${D.fmt(s.mass, 2)} M☉`, "Gaia FLAME");
+    if (s.age != null) fact("Yaş", `${D.fmt(s.age, 1)} milyar yıl`, "Gaia FLAME");
+    if (s.rv != null) fact("Dikine hız", `${D.fmt(s.rv, 1)} km/s ${s.rv < 0 ? "(yaklaşıyor)" : "(uzaklaşıyor)"}`, "Gaia RVS");
+    if (s.pmra != null && s.pmdec != null) fact("Öz hareket", `${D.fmt(Math.hypot(s.pmra, s.pmdec), 1)} mas/yıl`, "Gaia DR3");
+    if (s.ruwe != null && s.ruwe > 1.4) fact("RUWE", `${D.fmt(s.ruwe, 2)} (çift yıldız olabilir)`, "Gaia DR3");
 
     // Poltergeist bölümü
     const lines = (D.LINES[d.cls] || []).map(([el, desc]) => `<li><b>${esc(el)}</b><span>${esc(desc)}</span></li>`).join("");
@@ -218,13 +304,15 @@
         <p class="note">Çizgi listesi tayf sınıfından beklenen tipik imzalardır, bu yıldızın tayfından ölçülmedi. Poltergeist modeli bağlandığında burası gerçek tayf ölçümüyle dolacak.</p>
       </div>
 
-      <div class="section">
+      ${s._origin === "gaia" ? "" : `<div class="section">
         <h3>Gaia DR3 canlı <span class="tag phob">arşiv</span></h3>
         <div id="gaia-live"><button class="btn" id="btn-gaia" type="button">Gaia DR3'ten güncel veriyi getir</button></div>
-      </div>
+      </div>`}
     `;
-    $("#btn-gaia").onclick = () => loadGaia(s.ra, s.dec, 30, $("#gaia-live"), s);
-    body.parentElement.scrollTop = 0;
+    if ($("#btn-gaia")) $("#btn-gaia").onclick = () => loadGaia(s.ra, s.dec, 30, $("#gaia-live"), s);
+    body.dataset.gaia = s._origin === "gaia" ? String(s.gaia) : "";
+    if (pending) body.insertAdjacentHTML("afterbegin", `<p class="note" id="gaia-detail-status">Gaia DR3'ten bu yıldızın tüm ölçümleri getiriliyor…</p>`);
+    if (!keepScroll) body.parentElement.scrollTop = 0;
   }
 
   function showPoint(ra, dec) {
@@ -252,7 +340,11 @@
       if (star) {
         // Hipparcos konumu 1991 çağında; yüksek öz hareketli yıldızlar Gaia'da (2016) birkaç ″ kaymış olabilir.
         // 30″ içindeki en parlak kaynağı al.
-        const g = src.slice().sort((a, b) => (a.phot_g_mean_mag ?? 99) - (b.phot_g_mean_mag ?? 99))[0];
+        let g = src.slice().sort((a, b) => (a.phot_g_mean_mag ?? 99) - (b.phot_g_mean_mag ?? 99))[0];
+        try {
+          const dj = await (await fetch(`api/gaia/source/${g.source_id}`)).json();
+          if (dj.ok) g = { ...dj.source, sep_arcsec: g.sep_arcsec };
+        } catch (_) { /* alan satırıyla devam */ }
         const rows = [];
         const f = (k, v) => rows.push(`<dt>${k}</dt><dd>${v}</dd>`);
         f("Kaynak", `Gaia DR3 ${esc(g.source_id)} <span class="src">${D.fmt(g.sep_arcsec, 2)}″ uzakta</span>`);
@@ -272,7 +364,7 @@
           <td>…${esc(String(g.source_id).slice(-7))}</td><td>${D.fmt(g.phot_g_mean_mag, 2)}</td><td>${D.fmt(g.bp_rp, 2)}</td>
           <td>${g.teff_gspphot ? D.fmtInt(g.teff_gspphot) : "—"}</td><td>${D.fmt(g.sep_arcsec, 1)}″</td></tr>`).join("")}</tbody></table>
         <p class="note">Bir satıra tıkla: o Gaia kaynağı için yıldız kartı açılır.</p>`;
-      el.querySelectorAll("tr.pick").forEach((tr) => tr.onclick = () => showStar(gaiaToStar(src[+tr.dataset.i]), { goto: false }));
+      el.querySelectorAll("tr.pick").forEach((tr) => tr.onclick = () => openGaiaStar(src[+tr.dataset.i]));
     } catch (e) {
       el.innerHTML = `<p class="error">Gaia sorgusu başarısız: ${esc(e.message)}</p>`;
     }
@@ -281,18 +373,18 @@
   /** Gaia satırını yıldız kartı alan adlarına çevir (yalnızca var olanlar). */
   function gaiaToStar(g) {
     const s = { ra: g.ra, dec: g.dec, gaia: g.source_id, _origin: "gaia" };
-    if (g.bp_rp != null) s.bprp = g.bp_rp;
+    const map = {
+      bp_rp: "bprp", teff_gspphot: "teff", logg_gspphot: "logg", mh_gspphot: "mh", radius_gspphot: "rad",
+      teff_gspspec: "teff_s", logg_gspspec: "logg_s", mh_gspspec: "mh_s", fem_gspspec: "fem", alphafe_gspspec: "alpha",
+      cafe_gspspec: "ca", mgfe_gspspec: "mg", sife_gspspec: "si", tife_gspspec: "ti", radial_velocity: "rv",
+      pmra: "pmra", pmdec: "pmdec", ruwe: "ruwe", lum_flame: "lumf", mass_flame: "mass", age_flame: "age",
+      phot_g_mean_mag: "g",
+    };
+    for (const [k, v] of Object.entries(map)) if (g[k] != null && g[k] !== "") s[v] = g[k];
     if (g.parallax != null && g.parallax_error) { s.plx = g.parallax; s.eplx = g.parallax_error; }
-    if (g.teff_gspphot != null) s.teff = g.teff_gspphot;
-    if (g.logg_gspphot != null) s.logg = g.logg_gspphot;
-    if (g.mh_gspphot != null) s.mh = g.mh_gspphot;
-    if (g.mh_gspspec != null) s.mh_s = g.mh_gspspec;
-    if (g.fem_gspspec != null) s.fem = g.fem_gspspec;
-    if (g.alphafe_gspspec != null) s.alpha = g.alphafe_gspspec;
-    if (g.radius_gspphot != null) s.rad = g.radius_gspphot;
-    if (g.spectraltype_esphs) s.sp = g.spectraltype_esphs.trim();
-    // Gaia G kadiri V ile aynı değil; kart G'yi ayrıca gösteriyor, V alanını boş bırakıyoruz.
-    s.g = g.phot_g_mean_mag;
+    if (g.spectraltype_esphs) s.sp = String(g.spectraltype_esphs).trim();
+    if (g.phot_variable_flag === "VARIABLE") s.var = "1";
+    // Gaia G kadiri V ile aynı değil; V alanı boş bırakılır, kart G'yi ayrıca gösterir.
     return s;
   }
 
@@ -422,7 +514,7 @@
       $("#upload-dialog").close();
       showSolveOnSky(j, false);
       if (it.src === "bright") showStar(byHip.get(it.hip) || it);
-      else { const s = gaiaToStar(it); gotoStar(s, Math.max(0.05, j.radius_deg * 1.2)); showStar(s, { goto: false }); }
+      else { gotoStar(it, Math.max(0.05, j.radius_deg * 1.2)); openGaiaStar(it); }
     };
     svg.querySelectorAll("circle").forEach((c) => c.onclick = () => select(+c.dataset.i));
     list.querySelectorAll("li[data-i]").forEach((l) => l.onclick = () => select(+l.dataset.i));

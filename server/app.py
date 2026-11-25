@@ -2,9 +2,13 @@
 
 Serves the static site in ../web and a small JSON API:
 
-  GET  /api/gaia/cone?ra=..&dec=..&r=..   Gaia DR3 sources (+ astrophysical params)
-                                          near a point, r in arcsec. Proxied
-                                          because the ESA TAP has no CORS.
+  GET  /api/gaia/field?ra=..&dec=..&r=..  brightest Gaia DR3 sources in the visible
+                                          field (r in deg) — streams all 1.8 billion
+                                          stars as you zoom in
+  GET  /api/gaia/source/<source_id>       every measured parameter of one star
+  GET  /api/gaia/cone?ra=..&dec=..&r=..   Gaia DR3 sources near a point (r in arcsec)
+                                          All Gaia calls are proxied (no CORS on the
+                                          archives) with ESA -> ARI mirror fallback.
   POST /api/solve                         upload an image. FITS with a celestial
                                           WCS is solved locally; any other image
                                           (or FITS without WCS) is sent to
@@ -35,7 +39,6 @@ from flask import Flask, abort, jsonify, request, send_from_directory
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / "web"
-GAIA_TAP = "https://gea.esac.esa.int/tap-server/tap/sync"
 NOVA = os.environ.get("ASTROMETRY_URL", "https://nova.astrometry.net")
 NOVA_KEY = os.environ.get("ASTROMETRY_API_KEY", "")
 MAX_UPLOAD = 60 * 1024 * 1024
@@ -58,50 +61,151 @@ def star_dict(row):
 
 
 # --------------------------------------------------------------------------
-# Gaia DR3
+# Gaia DR3 (1.8 milyar kaynak) — ESA arşivi + yansılar, otomatik geçiş
 # --------------------------------------------------------------------------
-GAIA_COLS = """g.source_id, g.ra, g.dec, g.phot_g_mean_mag, g.bp_rp, g.parallax,
- g.parallax_error, g.radial_velocity, ap.teff_gspphot, ap.logg_gspphot,
- ap.mh_gspphot, ap.distance_gspphot, ap.radius_gspphot, ap.mh_gspspec,
- ap.fem_gspspec, ap.alphafe_gspspec, ap.spectraltype_esphs,
- ap.classprob_dsc_combmod_star, ap.classprob_dsc_combmod_galaxy,
- ap.classprob_dsc_combmod_quasar"""
+# ESA arşivi bakımda olduğunda (ör. DR4 hazırlığı) aynı gaiadr3 şemasını sunan
+# Heidelberg ARI yansısına geçilir. Sıra GAIA_TAP_MIRRORS ile değiştirilebilir.
+GAIA_MIRRORS = [u.strip() for u in os.environ.get(
+    "GAIA_TAP_MIRRORS",
+    "https://gea.esac.esa.int/tap-server/tap/sync,https://gaia.ari.uni-heidelberg.de/tap/sync",
+).split(",") if u.strip()]
+_mirror_down: dict[str, float] = {}  # url -> zaman (10 dk boyunca atla)
+
+# Alan sorgusu hızlı olsun diye yalnızca gaia_source; ayrıntılar tek kaynak için ayrıca alınır.
+FIELD_COLS = "source_id, ra, dec, phot_g_mean_mag, bp_rp, parallax, parallax_error"
+DETAIL_COLS = """g.source_id, g.ra, g.dec, g.phot_g_mean_mag, g.phot_bp_mean_mag,
+ g.phot_rp_mean_mag, g.bp_rp, g.parallax, g.parallax_error, g.pmra, g.pmdec,
+ g.radial_velocity, g.ruwe, g.phot_variable_flag, g.non_single_star,
+ ap.teff_gspphot, ap.logg_gspphot, ap.mh_gspphot, ap.distance_gspphot,
+ ap.radius_gspphot, ap.teff_gspspec, ap.logg_gspspec, ap.mh_gspspec,
+ ap.fem_gspspec, ap.alphafe_gspspec, ap.cafe_gspspec, ap.mgfe_gspspec,
+ ap.sife_gspspec, ap.tife_gspspec, ap.spectraltype_esphs, ap.lum_flame,
+ ap.mass_flame, ap.age_flame, ap.classprob_dsc_combmod_star,
+ ap.classprob_dsc_combmod_galaxy, ap.classprob_dsc_combmod_quasar"""
+
+
+def _num(v):
+    if v in ("", None):
+        return None
+    try:
+        f = float(v)
+    except ValueError:
+        return v.strip().strip('"') or None
+    return None if math.isnan(f) else f
 
 
 def gaia_query(adql: str, timeout=60):
-    r = requests.post(
-        GAIA_TAP,
-        data={"REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": "json", "QUERY": adql},
-        timeout=timeout,
-    )
-    r.raise_for_status()
-    j = r.json()
-    names = [m["name"] for m in j["metadata"]]
-    out = []
-    for row in j["data"]:
-        d = {}
-        for k, v in zip(names, row):
-            if v is None or (isinstance(v, float) and math.isnan(v)):
+    """Run ADQL on the first working mirror; CSV is the format every mirror supports."""
+    import csv
+
+    errors = []
+    for url in GAIA_MIRRORS:
+        if time.time() - _mirror_down.get(url, 0) < 600:
+            continue
+        try:
+            r = requests.post(url, data={"REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": "csv",
+                                         "QUERY": adql}, timeout=timeout)
+            txt = r.text
+            if r.status_code != 200 or txt.lstrip().startswith("<"):
+                # HTML bakım sayfası ya da VOTable hata mesajı
+                if "QUERY_STATUS" in txt and "ERROR" in txt:
+                    errors.append(f"{url}: sorgu hatası")
+                else:
+                    _mirror_down[url] = time.time()
+                    errors.append(f"{url}: erişilemiyor")
                 continue
-            d[k] = str(v) if k == "source_id" else v
-        out.append(d)
-    return out
+        except requests.RequestException as e:
+            _mirror_down[url] = time.time()
+            errors.append(f"{url}: {e.__class__.__name__}")
+            continue
+        out = []
+        for row in csv.DictReader(io.StringIO(txt)):
+            d = {}
+            for k, v in row.items():
+                if k == "source_id":
+                    d[k] = v
+                    continue
+                val = _num(v)
+                if val is not None:
+                    d[k] = val
+            out.append(d)
+        return out
+    raise RuntimeError("; ".join(errors) or "Gaia yansısı yok")
 
 
-def gaia_cone(ra, dec, r_deg, gmax=None, top=50):
-    where = (
-        f"1=CONTAINS(POINT('ICRS', g.ra, g.dec), CIRCLE('ICRS', {ra:.7f}, {dec:.7f}, {r_deg:.7f}))"
-    )
+def _circle(ra, dec, r_deg, prefix=""):
+    return (f"1=CONTAINS(POINT('ICRS', {prefix}ra, {prefix}dec), "
+            f"CIRCLE('ICRS', {ra:.7f}, {dec:.7f}, {r_deg:.7f}))")
+
+
+def gaia_field(ra, dec, r_deg, top=2000, gmax=None):
+    """En parlaktan sönüğe, alandaki ilk `top` Gaia DR3 kaynağı."""
+    where = _circle(ra, dec, r_deg)
     if gmax is not None:
-        where += f" AND g.phot_g_mean_mag < {gmax:.2f}"
-    q = (
-        f"SELECT TOP {int(top)} {GAIA_COLS}, "
-        f"DISTANCE(POINT('ICRS', g.ra, g.dec), POINT('ICRS', {ra:.7f}, {dec:.7f}))*3600 AS sep_arcsec "
-        "FROM gaiadr3.gaia_source AS g "
-        "LEFT JOIN gaiadr3.astrophysical_parameters AS ap ON ap.source_id = g.source_id "
-        f"WHERE {where} ORDER BY g.phot_g_mean_mag ASC"
-    )
-    return gaia_query(q)
+        where += f" AND phot_g_mean_mag < {gmax:.2f}"
+    q = (f"SELECT TOP {int(top)} {FIELD_COLS} FROM gaiadr3.gaia_source "
+         f"WHERE {where} ORDER BY phot_g_mean_mag")
+    rows = gaia_query(q)
+    for d in rows:
+        if "ra" in d and "dec" in d:
+            d["sep_arcsec"] = float(_sep(ra, dec, d["ra"], d["dec"]) * 3600)
+    return rows
+
+
+def _sep(ra1, dec1, ra2, dec2):
+    r1, d1, r2, d2 = map(np.radians, (ra1, dec1, ra2, dec2))
+    c = np.sin(d1) * np.sin(d2) + np.cos(d1) * np.cos(d2) * np.cos(r1 - r2)
+    return np.degrees(np.arccos(np.clip(c, -1, 1)))
+
+
+# Basit bellek önbelleği: aynı alan tekrar istenince arşive gidilmez.
+_field_cache: dict[tuple, tuple[float, list]] = {}
+
+
+@app.get("/api/gaia/field")
+def api_gaia_field():
+    """Görünen gökyüzü alanındaki Gaia DR3 yıldızları (en parlak `n` tanesi)."""
+    try:
+        ra = float(request.args["ra"]) % 360
+        dec = float(request.args["dec"])
+        r = min(float(request.args.get("r", 0.5)), 3.0)  # derece
+        n = max(100, min(int(request.args.get("n", 2000)), 5000))
+    except (KeyError, ValueError):
+        abort(400, "ra, dec, r (derece) gerekli")
+    # önbellek anahtarı: konumu ~r/4 ızgarasına yuvarla
+    step = max(r / 4, 0.002)
+    key = (round(ra / step), round(dec / step), round(r, 3), n)
+    hit = _field_cache.get(key)
+    if hit and time.time() - hit[0] < 3600:
+        return jsonify({"ok": True, "cached": True, "sources": hit[1]})
+    try:
+        rows = gaia_field(ra, dec, r, top=n)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Gaia arşivine ulaşılamadı: {e}"}), 502
+    compact = [{k: d[k] for k in ("source_id", "ra", "dec", "phot_g_mean_mag", "bp_rp", "parallax",
+                                  "parallax_error") if k in d} for d in rows]
+    if len(_field_cache) > 500:
+        _field_cache.clear()
+    _field_cache[key] = (time.time(), compact)
+    return jsonify({"ok": True, "cached": False, "sources": compact,
+                    "complete": len(compact) < n})
+
+
+@app.get("/api/gaia/source/<sid>")
+def api_gaia_source(sid):
+    """Tek bir Gaia DR3 kaynağının tüm ölçülmüş parametreleri."""
+    if not sid.isdigit():
+        abort(400)
+    q = (f"SELECT {DETAIL_COLS} FROM gaiadr3.gaia_source AS g "
+         "LEFT JOIN gaiadr3.astrophysical_parameters AS ap ON ap.source_id = g.source_id "
+         f"WHERE g.source_id = {int(sid)}")
+    try:
+        rows = gaia_query(q)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Gaia arşivine ulaşılamadı: {e}"}), 502
+    if not rows:
+        return jsonify({"ok": False, "error": "kaynak bulunamadı"}), 404
+    return jsonify({"ok": True, "source": rows[0]})
 
 
 @app.get("/api/gaia/cone")
@@ -113,7 +217,7 @@ def api_gaia_cone():
     except (KeyError, ValueError):
         abort(400, "ra, dec (deg) and r (arcsec) required")
     try:
-        rows = gaia_cone(ra, dec, r / 3600.0, top=25)
+        rows = gaia_field(ra, dec, r / 3600.0, top=25)
     except Exception as e:  # network / archive down
         return jsonify({"ok": False, "error": f"Gaia arşivine ulaşılamadı: {e}"}), 502
     rows.sort(key=lambda d: d.get("sep_arcsec", 1e9))
@@ -217,7 +321,7 @@ def describe_field(w, width, height, png_b64, png_scale, png_mime, source, extra
     # 2) Gaia DR3: the brightest sources in the field (identification of fainter stars)
     gaia, gaia_err = [], None
     try:
-        rows = gaia_cone(ra0, dec0, min(radius, 3.0), top=150)
+        rows = gaia_field(ra0, dec0, min(radius, 3.0), top=150)
         if rows:
             px, ok = on_image([r["ra"] for r in rows], [r["dec"] for r in rows])
             for r, p, k in zip(rows, px, ok):
