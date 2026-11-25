@@ -31,7 +31,7 @@ OTHER = {
 }
 SID, SRA, SDEC = "604917354477128448", 132.8746, 11.7880   # a bright M67 giant with GSP-Spec abundances
 # (galactic l, b, radius the site allows there: web/js/data.js maxFieldRadius)
-FIELDS = [(75.0, 1.5, 0.32), (180.0, 18.0, 0.5), (215.7, 31.9, 0.75)]
+FIELDS = [(75.0, 1.5, 0.14), (180.0, 18.0, 0.3), (215.7, 31.9, 0.42)]
 
 
 def dns(host):

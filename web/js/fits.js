@@ -251,9 +251,12 @@
     }
     stars.sort((a, b) => (a.v ?? 99) - (b.v ?? 99));
 
+    // Gaia eşleştirmesi: sorgu yarıçapı veri kaynağının kaldırabileceğiyle sınırlı (VizieR
+    // yansısında geniş alan çok yavaş); sınırlanırsa görüntünün ortası eşleştirilir.
+    const gaiaR = Math.min(radius, 3, opts.maxRadius ? opts.maxRadius(ra0, dec0) : 3);
     let gaia = [], gaiaErr = null;
     try {
-      const rows = await opts.fieldBright(ra0, dec0, Math.min(radius, 3), 150);
+      const rows = await opts.fieldBright(ra0, dec0, gaiaR, 150);
       for (const g of rows) {
         const [x, y] = wcs.world2pix(g.ra, g.dec);
         if (onImage(x, y)) gaia.push({ ...g, src: "gaia", x, y });
@@ -267,7 +270,7 @@
       center: { ra: ra0, dec: dec0 }, radius_deg: radius, pixscale_arcsec: wcs.pixscale,
       width: w, height: hgt, corners,
       preview: { url: pv.url, scale: pv.scale, y_flipped: true },
-      stars, gaia, gaia_error: gaiaErr,
+      stars, gaia, gaia_error: gaiaErr, gaia_radius_deg: gaiaR < radius ? gaiaR : null,
     };
   }
 

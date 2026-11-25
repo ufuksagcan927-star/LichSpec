@@ -233,7 +233,9 @@
     }
     const r = Math.min(maxR, view * 1.3);
     const seq = ++gaiaSeq;
-    badge.textContent = "Gaia DR3 bu alan için sorgulanıyor…";
+    badge.textContent = LichData.mode === "server"
+      ? "Gaia DR3 bu alan için sorgulanıyor…"
+      : "Gaia DR3 bu alan için sorgulanıyor… (10–20 sn sürebilir)";
     badge.className = "gaia-status busy";
     try {
       const res = await LichData.field(ra, dec, r, GAIA_N);
@@ -537,7 +539,10 @@
         const headTxt = String.fromCharCode(...head);
         if (gz || LichFits.isFits(f.name, headTxt)) {
           try {
-            const j = await LichFits.solve(f, { stars: STARS, fieldBright: LichData.fieldBright });
+            const j = await LichFits.solve(f, {
+              stars: STARS, fieldBright: LichData.fieldBright,
+              maxRadius: (ra, dec) => 1.3 * LichData.maxFieldRadius(ra, dec),
+            });
             status.hidden = true;
             renderSolve(j);
             return;
@@ -633,7 +638,7 @@
       <span>Merkez <b>${hms(j.center.ra)} ${dms(j.center.dec)}</b></span>
       <span>Alan çapı <b>${fovTxt}</b></span>
       <span>Ölçek <b>${D.fmt(j.pixscale_arcsec, 3)}″/piksel</b></span>
-      <span>Tanınan: <b>${j.stars.length}</b> parlak yıldız, <b>${j.gaia.length}</b> Gaia kaynağı</span>
+      <span>Tanınan: <b>${j.stars.length}</b> parlak yıldız, <b>${j.gaia.length}</b> Gaia kaynağı${j.gaia_radius_deg ? ` (Gaia: görüntünün ortasındaki ${D.fmt(j.gaia_radius_deg * 2, 2)}° çaplı alan)` : ""}</span>
       <span>Çözüm: <b>${j.source === "fits-wcs" ? "FITS başlığındaki WCS" : "Astrometry.net"}</b></span>
       ${j.gaia_error ? `<span class="error">${esc(j.gaia_error)}</span>` : ""}`;
     $("#solve-result").hidden = false;

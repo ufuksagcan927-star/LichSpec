@@ -234,14 +234,15 @@
 
   /**
    * Tek bir alan sorgusunun en büyük yarıçapı (derece). VizieR'de "alandaki en parlak N
-   * yıldız" sorgusu dairedeki bütün yıldızları taradığı için süresi yıldız sayısıyla büyür:
-   * Samanyolu düzleminde daire küçük tutulur. (Ölçüm: CfA yansısında M67 çevresi r=0,35° 9 sn,
-   * r=0,9° 26 sn; Kuğu'da r=0,35° 25 sn, r=0,9° 60 sn'yi aşıyor.)
+   * yıldız" sorgusu dairedeki bütün yıldızları taradığı için süresi dairedeki yıldız sayısıyla
+   * büyür; Samanyolu düzleminde daire küçük tutulur. CfA yansısında ölçülen (≈9 sn taban
+   * gecikme dahil): b=32° r=0,35° 9–17 sn, r=0,75° 45 sn; b=18° r=0,5° 45 sn; b=1,5° r=0,32°
+   * 60 sn'yi aşıyor. Sınırlar ≈15–20 sn hedefler.
    */
   function maxFieldRadius(ra, dec) {
     if (mode === "server") return 2.0;
     const b = Math.abs(galacticLat(ra, dec));
-    return b < 12 ? 0.32 : b < 25 ? 0.5 : 0.75;
+    return b < 5 ? 0.14 : b < 12 ? 0.2 : b < 25 ? 0.3 : b < 50 ? 0.42 : 0.6;
   }
 
   /**
