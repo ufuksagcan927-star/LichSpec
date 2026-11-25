@@ -17,28 +17,34 @@
 
   let mode = "static";
 
-  // VizieR'in birbirinin aynısı yansıları. Hepsi tarayıcı isteklerine (CORS) izin veriyor.
-  // Açılışta hepsine küçük bir istek atılır, ilk cevap veren öne alınır; biri düşerse
-  // sıradakine geçilir.
+  // VizieR'in birbirinin aynısı yansıları (CDS Strasbourg, Harvard CfA, IDIA Güney Afrika).
+  // Hepsi tarayıcı isteklerine (CORS) izin veriyor. Açılışta hepsine küçük bir istek atılır,
+  // ilk cevap veren öne alınır; biri düşerse sıradakine geçilir.
   const VIZIER = [
     "https://vizier.cds.unistra.fr/viz-bin/asu-tsv",
     "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv",
+    "https://vizier.idia.ac.za/viz-bin/asu-tsv",
   ];
+
+  // Gaia DR3'ün tamamı, CDS'nin "HiPS katalog" karoları olarak: her karoda en parlak
+  // yıldızlar, yakınlaştıkça daha sönükleri. Erişilebiliyorsa geniş alanlar için en hızlı yol.
+  const GAIA_HIPS = "https://hipscat.cds.unistra.fr/HiPSCatService/I/355/gaiadr3";
   const T_MAIN = "I/355/gaiadr3";   // Gaia DR3 ana kaynak tablosu (1,8 milyar)
   const T_PARAM = "I/355/paramp";   // Gaia DR3 astrofiziksel parametreler (FLAME, GSP-Spec…)
 
   // VizieR sütun adı -> Gaia arşivi sütun adı. Bir alan için birden çok aday ad olabilir;
   // ilk bulunan kullanılır.
   const MAP = {
-    source_id: ["Source", "GaiaDR3", "DR3Name"],
-    ra: ["RA_ICRS", "RAdeg", "_RA"],
-    dec: ["DE_ICRS", "DEdeg", "_DE"],
-    phot_g_mean_mag: ["Gmag"],
-    phot_bp_mean_mag: ["BPmag"],
-    phot_rp_mean_mag: ["RPmag"],
-    bp_rp: ["BP-RP"],
-    parallax: ["Plx"],
-    parallax_error: ["e_Plx"],
+    // (Gaia arşivi adları da aday: HiPS kataloğunun sütun adları VizieR'inkinden farklıysa)
+    source_id: ["Source", "source_id", "DR3Name"],
+    ra: ["RA_ICRS", "ra", "RAdeg"],
+    dec: ["DE_ICRS", "dec", "DEdeg"],
+    phot_g_mean_mag: ["Gmag", "phot_g_mean_mag"],
+    phot_bp_mean_mag: ["BPmag", "phot_bp_mean_mag"],
+    phot_rp_mean_mag: ["RPmag", "phot_rp_mean_mag"],
+    bp_rp: ["BP-RP", "bp_rp"],
+    parallax: ["Plx", "parallax"],
+    parallax_error: ["e_Plx", "parallax_error"],
     pmra: ["pmRA"],
     pmdec: ["pmDE"],
     radial_velocity: ["RV"],
@@ -54,7 +60,7 @@
     teff_gspspec: ["Teff-S", "TeffS"],
     logg_gspspec: ["logg-S", "loggS"],
     mh_gspspec: ["[M/H]-S", "[M/H]S"],
-    fem_gspspec: ["[Fe/M]-S", "[Fe/M]S"],
+    fem_gspspec: ["[Fe/M]-S", "[Fe/H]-S"],   // VizieR fem_gspspec'i "[Fe/H]-S" adıyla veriyor
     alphafe_gspspec: ["[alpha/Fe]-S", "[alpha/Fe]S"],
     cafe_gspspec: ["[Ca/Fe]-S", "[Ca/Fe]S"],
     mgfe_gspspec: ["[Mg/Fe]-S", "[Mg/Fe]S"],
@@ -73,7 +79,8 @@
         if (row[n] === undefined) continue;
         const raw = String(row[n]).trim();
         if (raw === "" || raw === "NaN") break;
-        if (NUMERIC_KEEP_STRING.has(key)) out[key] = raw;
+        if (key === "source_id") out[key] = raw.replace(/^Gaia DR3\s*/, "");
+        else if (NUMERIC_KEEP_STRING.has(key)) out[key] = raw;
         else {
           const f = parseFloat(raw);
           if (isFinite(f)) out[key] = f;
@@ -115,25 +122,51 @@
   }).toString();
   let mirrorsP = null;
 
-  /** Yansıları hıza göre sırala: ilk cevap veren başa geçer. */
+  /**
+   * Yansıları sırala: ilk cevap veren başa geçer, hiç cevap vermeyenler sona.
+   * (Bir yansıya bağlanılamadığında tarayıcı uzun süre bekleyebiliyor; bu yüzden ölçmeden
+   * hiçbirine güvenmiyoruz.)
+   */
   function mirrors() {
     if (mirrorsP) return mirrorsP;
     mirrorsP = new Promise((resolve) => {
-      let left = VIZIER.length, done = false;
-      const finish = (first) => {
+      const ok = [], bad = [];
+      let done = false;
+      const finish = () => {
         if (done) return;
         done = true;
-        resolve(first ? [first, ...VIZIER.filter((b) => b !== first)] : VIZIER.slice());
+        const rest = VIZIER.filter((b) => !ok.includes(b) && !bad.includes(b));
+        resolve([...ok, ...rest, ...bad]);
       };
-      setTimeout(() => finish(null), 8000);
+      setTimeout(finish, 20000);
       for (const base of VIZIER) {
         fetch(`${base}?${PING}`)
           .then((r) => (r.ok ? r.text() : ""))
-          .then((t) => { if (/^\s*\d{8,}/m.test(t)) finish(base); else if (--left === 0) finish(null); })
-          .catch(() => { if (--left === 0) finish(null); });
+          .then((t) => { if (/^\s*\d{8,}/m.test(t)) { ok.push(base); finish(); } else bad.push(base); })
+          .catch(() => bad.push(base))
+          .finally(() => { if (ok.length + bad.length === VIZIER.length) finish(); });
       }
     });
     return mirrorsP;
+  }
+
+  let hipsP = null;
+  /** CDS'nin Gaia DR3 HiPS kataloğuna ulaşılabiliyor mu? (birkaç saniyede karar verir) */
+  function hipsAvailable(timeoutMs = 6000) {
+    if (hipsP) return hipsP;
+    hipsP = (async () => {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), timeoutMs);
+      try {
+        const r = await fetch(`${GAIA_HIPS}/properties`, { signal: ctl.signal });
+        return r.ok && /hips_/.test(await r.text());
+      } catch (_) {
+        return false;
+      } finally {
+        clearTimeout(t);
+      }
+    })();
+    return hipsP;
   }
 
   async function vizier(params, timeoutMs = 30000) {
@@ -192,36 +225,40 @@
 
   const FIELD_COLS = "Source,RA_ICRS,DE_ICRS,Gmag,BP-RP,Plx,e_Plx";
 
-  /**
-   * Statik barındırmada geniş alanlarda VizieR'in tüm alanı taraması uzun sürer; alan
-   * büyüdükçe bir parlaklık sınırı konur (yakınlaştıkça kalkar). Dönen yıldızlar yine
-   * "bu sınırdan parlak olanların en parlakları"dır.
-   */
-  function fieldMagLimit(rDeg) {
-    if (rDeg > 1.2) return 15;
-    if (rDeg > 0.6) return 17;
-    if (rDeg > 0.3) return 19;
-    return null;
+  /** Ekvator koordinatlarından galaktik enlem (derece). */
+  function galacticLat(ra, dec) {
+    const r = Math.PI / 180, aG = 192.85948 * r, dG = 27.12825 * r;
+    const d = dec * r;
+    return Math.asin(Math.sin(d) * Math.sin(dG) + Math.cos(d) * Math.cos(dG) * Math.cos(ra * r - aG)) / r;
   }
 
   /**
-   * Görünen alandaki en parlak `n` Gaia DR3 yıldızı.
-   * Dönen: { sources, gmax (konan parlaklık sınırı ya da null), complete (alandaki her şey geldi mi) }
+   * Tek bir alan sorgusunun en büyük yarıçapı (derece). VizieR'de "alandaki en parlak N
+   * yıldız" sorgusu dairedeki bütün yıldızları taradığı için süresi yıldız sayısıyla büyür:
+   * Samanyolu düzleminde daire küçük tutulur. (Ölçüm: CfA yansısında M67 çevresi r=0,35° 9 sn,
+   * r=0,9° 26 sn; Kuğu'da r=0,35° 25 sn, r=0,9° 60 sn'yi aşıyor.)
+   */
+  function maxFieldRadius(ra, dec) {
+    if (mode === "server") return 2.0;
+    const b = Math.abs(galacticLat(ra, dec));
+    return b < 12 ? 0.32 : b < 25 ? 0.5 : 0.75;
+  }
+
+  /**
+   * Görünen alandaki en parlak `n` Gaia DR3 yıldızı (VizieR sıralamayı tüm dairede yapıyor;
+   * CI'da doğrulandı). Dönen: { sources, complete (dairedeki her yıldız geldi mi) }
    */
   async function field(ra, dec, rDeg, n = 3000) {
     if (mode === "server") {
       const j = await getJson(`api/gaia/field?ra=${(+ra).toFixed(5)}&dec=${(+dec).toFixed(5)}&r=${(+rDeg).toFixed(4)}&n=${n}`);
-      return { sources: j.sources, gmax: null, complete: j.complete !== false && j.sources.length < n };
+      return { sources: j.sources, complete: j.complete !== false && j.sources.length < n };
     }
-    const gmax = fieldMagLimit(rDeg);
-    const params = {
+    const rows = await vizier({
       "-source": T_MAIN, "-c": coo(ra, dec), "-c.rd": (+rDeg).toFixed(4),
       "-out": FIELD_COLS, "-out.max": String(n), "-sort": "Gmag",
-    };
-    if (gmax) params.Gmag = `<${gmax}`;
-    const rows = await vizier(params, 45000);
+    }, 50000);
     const sources = rows.map(fromVizier).filter((g) => g.ra != null && g.dec != null && g.source_id);
-    return { sources, gmax, complete: !gmax && sources.length < n };
+    return { sources, complete: sources.length < n };
   }
 
   /** Bir alandaki en parlak `top` Gaia kaynağı (fotoğraf eşleştirmesi için). r: derece. */
@@ -267,7 +304,8 @@
   }
 
   global.LichData = {
-    detect, cone, field, fieldBright, source, fromVizier, parseTsv, mirrors,
+    detect, cone, field, fieldBright, source, fromVizier, parseTsv, mirrors, hipsAvailable,
+    maxFieldRadius, galacticLat, GAIA_HIPS,
     get mode() { return mode; },
   };
 })(window);

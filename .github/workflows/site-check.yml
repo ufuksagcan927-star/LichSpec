@@ -1,7 +1,8 @@
 name: Site check
 
 # Siteyi statik olarak (GitHub Pages / Netlify ile aynı biçimde) açıp gerçek internette
-# dener: gökyüzü, Gaia DR3 katmanı (CDS), yıldız kartı ve FITS fotoğraf çözümü.
+# dener: gökyüzü, Gaia DR3 katmanı (CDS HiPS kataloğu ya da VizieR yansıları), yıldız kartı
+# ve FITS fotoğraf çözümü. Önce veri servislerini yoklar (tools/probe_services.py).
 on:
   push:
     branches: ['claude/**', main]
@@ -26,7 +27,7 @@ jobs:
           python tools/make_test_fits.py site-check-out/pleiades.fits
       - name: Probe the data services (VizieR mirrors, CORS, Gaia columns, field query timing)
         continue-on-error: true
-        timeout-minutes: 12
+        timeout-minutes: 6
         run: python -u tools/probe_services.py
       - name: Install Playwright
         run: |

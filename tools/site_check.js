@@ -20,9 +20,12 @@ fs.mkdirSync(outDir, { recursive: true });
 
 const CFA = "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv";
 const CDS = "https://vizier.cds.unistra.fr/viz-bin/asu-tsv";
+const IDIA = "https://vizier.idia.ac.za/viz-bin/asu-tsv";
 const PROBES = [
   ["VizieR CDS Gaia DR3 cone", `${CDS}?-source=I/355/gaiadr3&-c=132.846%20%2B11.814&-c.rs=60&-out=Source,RA_ICRS,DE_ICRS,Gmag,BP-RP&-out.max=3&-sort=Gmag`],
   ["VizieR CfA Gaia DR3 cone", `${CFA}?-source=I/355/gaiadr3&-c=132.846%20%2B11.814&-c.rs=60&-out=Source,RA_ICRS,DE_ICRS,Gmag,BP-RP&-out.max=3&-sort=Gmag`],
+  ["VizieR IDIA Gaia DR3 cone", `${IDIA}?-source=I/355/gaiadr3&-c=132.846%20%2B11.814&-c.rs=60&-out=Source,RA_ICRS,DE_ICRS,Gmag,BP-RP&-out.max=3&-sort=Gmag`],
+  ["Gaia DR3 HiPS catalogue", "https://hipscat.cds.unistra.fr/HiPSCatService/I/355/gaiadr3/properties"],
   ["VizieR CfA Gaia DR3 by Source+position, all columns", `${CFA}?-source=I/355/gaiadr3&-c=132.84%20%2B11.80&-c.rs=900&Source=604917354477128448&-out.all=1&-out.max=1`],
   ["VizieR CfA Gaia DR3 paramp by Source+position", `${CFA}?-source=I/355/paramp&-c=132.84%20%2B11.80&-c.rs=900&Source=604917354477128448&-out.all=1&-out.max=1`],
   ["IRSA DSS2 HiPS", "https://irsa.ipac.caltech.edu/data/hips/CDS/DSS2/color/properties"],
@@ -70,6 +73,9 @@ const log = (...a) => console.log(...a);
     log(`- ${name}: ${r.ok ? "OK" : "FAIL"} ${r.status || ""} ${(r.ms / 1000).toFixed(1)}s ${r.error || ""}`);
     if (r.head) log("    " + r.head.replace(/[ ]+/g, " ").replace(/\n+/g, " ⏎ ").slice(0, 1500));
   }
+
+  await page.waitForFunction(() => window.lichspec && window.lichspec.gaiaMode, null, { timeout: 30000 }).catch(() => {});
+  log("Gaia layer mode:", await page.evaluate(() => window.lichspec && window.lichspec.gaiaMode));
 
   log("\n== Gaia layer at M67");
   await page.evaluate(() => { lichspec.aladin.gotoRaDec(132.846, 11.814); lichspec.aladin.setFoV(0.5); });
