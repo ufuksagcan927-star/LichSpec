@@ -15,7 +15,7 @@
     { id: "wise", label: "AllWISE (orta kızılötesi)", url: "https://irsa.ipac.caltech.edu/data/hips/CDS/AllWISE/RGB-W4-W2-W1", cds: "CDS/P/allWISE/color" },
   ];
 
-  let aladin, starCat, gaiaCat, gaiaHips, footprintLayer;
+  let aladin, starCat, gaiaCat, footprintLayer;
   let STARS = [];          // nesne dizisi
   let byHip = new Map();
   let lastSolve = null;
@@ -83,16 +83,10 @@
     aladin.addCatalog(starCat);
     starCat.addSources(STARS.map((s) => A.source(s.ra, s.dec, { star: s, name: D.title(s) })));
 
-    // Gaia DR3 katmanı (1,8 milyar kaynak). Sunucu varsa görünen alan sunucudan sorgulanır;
-    // statik barındırmada CDS'nin Gaia DR3 HiPS kataloğu kullanılır: yakınlaştıkça daha
-    // sönük yıldızların karoları gelir.
-    if (LichData.mode === "server") {
-      gaiaCat = A.catalog({ name: "Gaia DR3 (1,8 milyar yıldız)", shape: drawGaia, sourceSize: 8, color: "#8be9ef", onClick: null });
-      aladin.addCatalog(gaiaCat);
-    } else {
-      gaiaHips = A.catalogHiPS(LichData.GAIA_HIPS, { name: "Gaia DR3 (1,8 milyar yıldız)", shape: drawGaiaHips, sourceSize: 8, color: "#8be9ef", onClick: null });
-      aladin.addCatalog(gaiaHips);
-    }
+    // Gaia DR3 katmanı (1,8 milyar kaynak): yakınlaşınca görünen alanın en parlak yıldızları
+    // sorgulanır (sunucu varsa sunucudan, yoksa tarayıcıdan doğrudan VizieR'den).
+    gaiaCat = A.catalog({ name: "Gaia DR3 (1,8 milyar yıldız)", shape: drawGaia, sourceSize: 8, color: "#8be9ef", onClick: null });
+    aladin.addCatalog(gaiaCat);
 
     footprintLayer = A.graphicOverlay({ color: "#19c9d4", lineWidth: 2, name: "Yüklenen fotoğraf" });
     aladin.addOverlay(footprintLayer);
@@ -101,11 +95,6 @@
     aladin.on("objectClicked", (obj) => {
       if (obj && obj.data && obj.data.star) { clickedObject = true; showStar(obj.data.star, { goto: false }); }
       else if (obj && obj.data && obj.data.gaia) { clickedObject = true; openGaiaStar(obj.data.gaia); }
-      else if (obj && obj.data && (obj.data.Source || obj.data.source_id)) {
-        clickedObject = true;
-        const g = LichData.fromVizier(obj.data);
-        if (g.source_id) openGaiaStar(g);
-      }
     });
     aladin.on("click", (e) => {
       if (!e || e.isDragging) return;
@@ -130,8 +119,9 @@
 
   // -------------------------------------------------------------- Gaia DR3 akışı
   const GAIA_MAX_FOV = 2.5;   // derece; bundan genişte yalnızca parlak yıldız modeli gösterilir
+  const GAIA_MAX_R = 2.0;     // derece; tek sorgunun en büyük yarıçapı
   const GAIA_N = 3000;        // alan başına en parlak N yıldız
-  let gaiaTimer = null, gaiaSeq = 0, gaiaKey = "";
+  let gaiaTimer = null, gaiaSeq = 0;
   const gaiaBadge = () => $("#gaia-status");
 
   function drawGaia(source, ctx) {
@@ -148,76 +138,47 @@
 
   function scheduleGaia() {
     clearTimeout(gaiaTimer);
-    gaiaTimer = setTimeout(LichData.mode === "server" ? loadGaiaField : updateGaiaHips, 600);
+    gaiaTimer = setTimeout(loadGaiaField, 600);
   }
 
-  // Statik barındırma: CDS HiPS kataloğu. Geniş alanda gizli (parlak yıldız modeliyle karışmasın).
-  const GAIA_HIPS_MAX_FOV = 10;
-  function drawGaiaHips(source, ctx) {
-    const d = source.data;
-    if (source._g === undefined) {
-      source._g = parseFloat(d.Gmag);
-      const c = parseFloat(d["BP-RP"]);
-      source._c = isFinite(c) ? D.bvColor(0.85 * c - 0.05) : "#cfe3ff";
-    }
-    const m = isFinite(source._g) ? source._g : 18;
-    const r = Math.max(1.1, Math.min(5, 4.6 - 0.22 * (m - 8)));
-    ctx.beginPath();
-    ctx.arc(source.x, source.y, r, 0, 2 * Math.PI);
-    ctx.fillStyle = source._c;
-    ctx.globalAlpha = 0.9;
-    ctx.fill();
-    ctx.globalAlpha = 1;
-  }
-
-  function updateGaiaHips() {
-    if (!gaiaHips) return;
-    const fov = aladin.getFov()[0];
-    const badge = gaiaBadge();
-    if (fov > GAIA_HIPS_MAX_FOV) {
-      gaiaHips.hide();
-      badge.textContent = `Gaia DR3'ün 1,8 milyar yıldızını görmek için ${D.fmt(GAIA_HIPS_MAX_FOV, 0)}°'nin altına yakınlaş`;
-      badge.className = "gaia-status hint";
-      return;
-    }
-    gaiaHips.show();
-    const n = (gaiaHips.getSources ? gaiaHips.getSources().length : 0);
-    badge.textContent = n
-      ? `Gaia DR3: bu görünümde ${n.toLocaleString("tr-TR")} yıldız yüklü · yakınlaştıkça daha sönükleri gelir`
-      : "Gaia DR3 karoları yükleniyor…";
-    badge.className = n ? "gaia-status ok" : "gaia-status busy";
-    if (!n) { clearTimeout(gaiaTimer); gaiaTimer = setTimeout(updateGaiaHips, 1500); }
-  }
+  // Son yüklenen alan: görünüm bu dairenin içinde kaldıkça yeniden sorgulanmaz.
+  let gaiaLoaded = null;   // { ra, dec, r, complete }
 
   async function loadGaiaField() {
     const fov = aladin.getFov();
     const badge = gaiaBadge();
     if (fov[0] > GAIA_MAX_FOV) {
-      if (gaiaKey) { gaiaCat.removeAll(); gaiaKey = ""; }
+      if (gaiaLoaded) { gaiaCat.removeAll(); gaiaLoaded = null; }
+      gaiaSeq++;
       badge.textContent = `Gaia DR3'ün 1,8 milyar yıldızını görmek için ${D.fmt(GAIA_MAX_FOV, 1)}°'nin altına yakınlaş`;
       badge.className = "gaia-status hint";
       return;
     }
     const [ra, dec] = aladin.getRaDec();
-    const r = Math.min(3, Math.max(0.01, 0.5 * Math.hypot(fov[0], fov[1])));
-    const key = `${ra.toFixed(3)},${dec.toFixed(3)},${r.toFixed(3)}`;
-    if (key === gaiaKey) return;
+    const view = Math.max(0.01, 0.5 * Math.hypot(fov[0], fov[1]));
+    if (gaiaLoaded) {
+      const inside = angSep(ra, dec, gaiaLoaded.ra, gaiaLoaded.dec) + view <= gaiaLoaded.r * 1.001;
+      // içeride kaldıkça ve çok yakınlaşılmadıkça (ya da alanın hepsi zaten yüklüyse) yeniden sorgu yok
+      if (inside && (gaiaLoaded.complete || view > gaiaLoaded.r / 2.2)) return;
+    }
+    const r = Math.min(GAIA_MAX_R, view * 1.3);
     const seq = ++gaiaSeq;
     badge.textContent = "Gaia DR3 bu alan için sorgulanıyor…";
     badge.className = "gaia-status busy";
     try {
-      const res = await fetch(`api/gaia/field?ra=${ra.toFixed(5)}&dec=${dec.toFixed(5)}&r=${r.toFixed(4)}&n=${GAIA_N}`);
-      const j = await res.json();
+      const res = await LichData.field(ra, dec, r, GAIA_N);
       if (seq !== gaiaSeq) return;               // daha yeni bir istek var
-      if (!j.ok) throw new Error(j.error || res.statusText);
-      gaiaKey = key;
+      const src = res.sources;
+      gaiaLoaded = { ra, dec, r, complete: res.complete };
       gaiaCat.removeAll();
-      gaiaCat.addSources(j.sources.map((g) => A.source(g.ra, g.dec, { gaia: g, name: `Gaia DR3 ${g.source_id}` })));
-      const n = j.sources.length;
-      const faint = n ? j.sources[n - 1].phot_g_mean_mag : null;
-      badge.textContent = j.complete === false || n >= GAIA_N
-        ? `Gaia DR3: bu alanın en parlak ${n.toLocaleString("tr-TR")} yıldızı (G ≤ ${D.fmt(faint, 1)}) · daha sönükler için yakınlaş`
-        : `Gaia DR3: bu alandaki ${n.toLocaleString("tr-TR")} yıldızın hepsi`;
+      gaiaCat.addSources(src.map((g) => A.source(g.ra, g.dec, { gaia: g, name: `Gaia DR3 ${g.source_id}` })));
+      const n = src.length, N = n.toLocaleString("tr-TR");
+      const faint = n ? src.reduce((m, g) => Math.max(m, g.phot_g_mean_mag ?? 0), 0) : null;
+      badge.textContent = res.complete
+        ? `Gaia DR3: bu alandaki ${N} yıldızın hepsi`
+        : res.gmax && n < GAIA_N
+          ? `Gaia DR3: bu alanda G < ${res.gmax} olan ${N} yıldız · daha sönükler için yakınlaş`
+          : `Gaia DR3: bu alanın en parlak ${N} yıldızı (G ≤ ${D.fmt(faint, 1)}) · daha sönükler için yakınlaş`;
       badge.className = "gaia-status ok";
     } catch (e) {
       if (seq !== gaiaSeq) return;
@@ -230,7 +191,7 @@
   async function openGaiaStar(g) {
     showStar(gaiaToStar(g), { goto: false, pending: true });
     try {
-      const full = await LichData.source(g.source_id);
+      const full = await LichData.source(g.source_id, g.ra, g.dec);
       const cur = $("#panel-body").dataset.gaia;
       if (cur === String(g.source_id)) showStar(gaiaToStar({ ...g, ...full }), { goto: false, keepScroll: true });
     } catch (e) {
@@ -391,7 +352,7 @@
         // 30″ içindeki en parlak kaynağı al.
         let g = src.slice().sort((a, b) => (a.phot_g_mean_mag ?? 99) - (b.phot_g_mean_mag ?? 99))[0];
         try {
-          g = { ...g, ...(await LichData.source(g.source_id)), sep_arcsec: g.sep_arcsec };
+          g = { ...g, ...(await LichData.source(g.source_id, g.ra, g.dec)), sep_arcsec: g.sep_arcsec };
         } catch (_) { /* alan satırıyla devam */ }
         const rows = [];
         const f = (k, v) => rows.push(`<dt>${k}</dt><dd>${v}</dd>`);
@@ -654,7 +615,7 @@
     }
     sel.onchange = () => setSurvey(sel.value);
     $("#toggle-stars").onchange = (e) => (e.target.checked ? starCat.show() : starCat.hide());
-    window.lichspec = { aladin, STARS, showStar, renderSolve, get gaiaHips() { return gaiaHips; }, data: LichData };
+    window.lichspec = { aladin, STARS, showStar, renderSolve, get gaiaCat() { return gaiaCat; }, data: LichData };
   }
   main();
 })();

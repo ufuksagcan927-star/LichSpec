@@ -5,13 +5,13 @@ name: Site check
 on:
   push:
     branches: ['claude/**', main]
-    paths: ['web/**', 'tools/site_check.js', 'tools/make_test_fits.py', '.github/workflows/site-check.yml']
+    paths: ['web/**', 'tools/site_check.js', 'tools/make_test_fits.py', 'tools/probe_services.py', '.github/workflows/site-check.yml']
   workflow_dispatch:
 
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,8 +22,12 @@ jobs:
           python-version: '3.12'
       - name: Make a test FITS image
         run: |
-          pip install --quiet astropy numpy
+          pip install --quiet astropy numpy requests
           python tools/make_test_fits.py site-check-out/pleiades.fits
+      - name: Probe the data services (VizieR mirrors, CORS, Gaia columns, field query timing)
+        continue-on-error: true
+        timeout-minutes: 12
+        run: python -u tools/probe_services.py
       - name: Install Playwright
         run: |
           npm install --no-save playwright@1.47.2

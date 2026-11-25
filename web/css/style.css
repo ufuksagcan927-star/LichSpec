@@ -66,7 +66,7 @@ select {
 }
 .gaia-status {
   position: absolute; left: 50%; transform: translateX(-50%); top: 44px; z-index: 20; pointer-events: none;
-  max-width: calc(100% - 140px); text-align: center;
+  width: max-content; max-width: calc(100% - 140px); text-align: center;
   background: #0b0d17cc; border: 1px solid var(--line); border-radius: 8px; padding: 3px 10px; font-size: 12px; color: var(--muted);
 }
 .gaia-status:empty { display: none; }
@@ -179,18 +179,20 @@ dialog.upload::backdrop { background: #05060cb3; }
 .solve-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
 
 @media (max-width: 860px) {
+  .topbar { gap: 6px 8px; padding: 6px 12px 8px; }
+  .brand { font-size: 16px; }
+  .brand small { display: none; }
+  .search { flex: 1 1 100%; max-width: none; order: 3; }
+  .search input { padding: 6px 10px; }
+  .top-actions { gap: 8px; flex: 1 1 auto; justify-content: flex-end; }
+  .top-actions select { padding: 5px 6px; max-width: 46vw; }
+  .toggle { font-size: 12px; }
+  .btn { padding: 6px 10px; }
+  .sky-status { display: none; }
+  .gaia-status { top: auto; bottom: 52px; max-width: calc(100% - 24px); }
   .layout { flex-direction: column; }
   .sky-wrap { flex: none; height: 58vh; }
   .panel { width: auto; border-left: 0; border-top: 1px solid var(--line); }
   .solve-grid { grid-template-columns: 1fr; }
-  .gaia-status {
-  position: absolute; left: 50%; transform: translateX(-50%); top: 44px; z-index: 20; pointer-events: none;
-  max-width: calc(100% - 140px); text-align: center;
-  background: #0b0d17cc; border: 1px solid var(--line); border-radius: 8px; padding: 3px 10px; font-size: 12px; color: var(--muted);
-}
-.gaia-status:empty { display: none; }
-.gaia-status.ok { color: #8be9ef; border-color: #19c9d455; }
-.gaia-status.busy { color: var(--warn); }
-.gaia-status.err { color: #ff8f8f; }
-.legend { display: none; }
+  .legend { display: none; }
 }

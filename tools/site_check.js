@@ -18,13 +18,14 @@ const [url, fitsPath, outDir = "site-check-out"] = args;
 if (!url) { console.error("usage: node tools/site_check.js <url> [fits] [out-dir]"); process.exit(2); }
 fs.mkdirSync(outDir, { recursive: true });
 
+const CFA = "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv";
+const CDS = "https://vizier.cds.unistra.fr/viz-bin/asu-tsv";
 const PROBES = [
-  ["VizieR Gaia DR3 cone (TSV)", "https://vizier.cds.unistra.fr/viz-bin/asu-tsv?-source=I/355/gaiadr3&-c=132.846%20%2B11.814&-c.rs=60&-out=Source,RA_ICRS,DE_ICRS,Gmag,BP-RP&-out.max=3&-sort=Gmag"],
-  ["VizieR Gaia DR3 by Source, all columns", "https://vizier.cds.unistra.fr/viz-bin/asu-tsv?-source=I/355/gaiadr3&Source=604917354477128448&-out.all=1&-out.max=1"],
-  ["VizieR Gaia DR3 paramp by Source", "https://vizier.cds.unistra.fr/viz-bin/asu-tsv?-source=I/355/paramp&Source=604917354477128448&-out.all=1&-out.max=1"],
-  ["Gaia DR3 HiPS catalogue properties", "https://hipscat.cds.unistra.fr/HiPSCatService/I/355/gaiadr3/properties"],
-  ["Gaia DR3 HiPS catalogue Metadata.xml", "https://hipscat.cds.unistra.fr/HiPSCatService/I/355/gaiadr3/Metadata.xml"],
-  ["IRSA DSS2 HiPS tile", "https://irsa.ipac.caltech.edu/data/hips/CDS/DSS2/color/properties"],
+  ["VizieR CDS Gaia DR3 cone", `${CDS}?-source=I/355/gaiadr3&-c=132.846%20%2B11.814&-c.rs=60&-out=Source,RA_ICRS,DE_ICRS,Gmag,BP-RP&-out.max=3&-sort=Gmag`],
+  ["VizieR CfA Gaia DR3 cone", `${CFA}?-source=I/355/gaiadr3&-c=132.846%20%2B11.814&-c.rs=60&-out=Source,RA_ICRS,DE_ICRS,Gmag,BP-RP&-out.max=3&-sort=Gmag`],
+  ["VizieR CfA Gaia DR3 by Source+position, all columns", `${CFA}?-source=I/355/gaiadr3&-c=132.84%20%2B11.80&-c.rs=900&Source=604917354477128448&-out.all=1&-out.max=1`],
+  ["VizieR CfA Gaia DR3 paramp by Source+position", `${CFA}?-source=I/355/paramp&-c=132.84%20%2B11.80&-c.rs=900&Source=604917354477128448&-out.all=1&-out.max=1`],
+  ["IRSA DSS2 HiPS", "https://irsa.ipac.caltech.edu/data/hips/CDS/DSS2/color/properties"],
   ["CDS Mellinger HiPS", "https://alasky.cds.unistra.fr/MellingerRGB/properties"],
 ];
 
@@ -37,6 +38,9 @@ const log = (...a) => console.log(...a);
   const consoleErrors = [];
   page.on("console", (m) => { if (m.type() === "error") consoleErrors.push(m.text().slice(0, 300)); });
   page.on("pageerror", (e) => consoleErrors.push("pageerror: " + e.message));
+  const badRequests = [];
+  page.on("requestfailed", (r) => badRequests.push(`${r.failure() && r.failure().errorText} ${r.url().slice(0, 160)}`));
+  page.on("response", (r) => { if (r.status() >= 400) badRequests.push(`HTTP ${r.status()} ${r.url().slice(0, 160)}`); });
   if (flags["aladin-local"]) {
     await page.route("https://cdn.jsdelivr.net/npm/aladin-lite@3.6.5/dist/aladin.js",
       (r) => r.fulfill({ path: flags["aladin-local"], contentType: "application/javascript" }));
@@ -48,26 +52,30 @@ const log = (...a) => console.log(...a);
     .catch(() => failures.push("sky did not initialise"));
   const mode = await page.evaluate(() => window.lichspec && window.lichspec.data.mode);
   log("mode:", mode);
+  const order = await page.evaluate(() => window.lichspec && window.lichspec.data.mirrors && window.lichspec.data.mirrors()).catch((e) => String(e));
+  log("VizieR mirror order:", JSON.stringify(order));
   await page.waitForTimeout(4000);
   await page.screenshot({ path: path.join(outDir, "1_home.png") });
 
   log("\n== external services, fetched from inside the page (CORS)");
   for (const [name, u] of PROBES) {
     const r = await page.evaluate(async (u) => {
+      const t0 = performance.now();
       try {
         const res = await fetch(u);
         const t = await res.text();
-        return { ok: res.ok, status: res.status, head: t.slice(0, 400) };
-      } catch (e) { return { ok: false, error: String(e) }; }
+        return { ok: res.ok, status: res.status, ms: performance.now() - t0, head: t.replace(/^#.*\n/gm, "").slice(0, 1500) };
+      } catch (e) { return { ok: false, ms: performance.now() - t0, error: String(e) }; }
     }, u);
-    log(`- ${name}: ${r.ok ? "OK" : "FAIL"} ${r.status || ""} ${r.error || ""}`);
-    if (r.head) log("    " + r.head.replace(/\s+/g, " ").slice(0, 400));
+    log(`- ${name}: ${r.ok ? "OK" : "FAIL"} ${r.status || ""} ${(r.ms / 1000).toFixed(1)}s ${r.error || ""}`);
+    if (r.head) log("    " + r.head.replace(/[ ]+/g, " ").replace(/\n+/g, " ⏎ ").slice(0, 1500));
   }
 
   log("\n== Gaia layer at M67");
   await page.evaluate(() => { lichspec.aladin.gotoRaDec(132.846, 11.814); lichspec.aladin.setFoV(0.5); });
   let nGaia = 0;
-  for (let i = 0; i < 30 && !nGaia; i++) {
+  const tGaia = Date.now();
+  for (let i = 0; i < 60 && !nGaia; i++) {
     await page.waitForTimeout(1500);
     nGaia = await page.evaluate(() => {
       const cats = lichspec.aladin.view.catalogs || [];
@@ -75,7 +83,7 @@ const log = (...a) => console.log(...a);
       return g && g.getSources ? g.getSources().length : 0;
     });
   }
-  log("gaia sources loaded:", nGaia, "| badge:", await page.textContent("#gaia-status"));
+  log("gaia sources loaded:", nGaia, `after ${((Date.now() - tGaia) / 1000).toFixed(1)}s`, "| badge:", await page.textContent("#gaia-status"));
   if (!nGaia) failures.push("no Gaia sources loaded at M67");
   const sample = await page.evaluate(() => {
     const g = (lichspec.aladin.view.catalogs || []).find((c) => /Gaia DR3/.test(c.name));
@@ -101,9 +109,11 @@ const log = (...a) => console.log(...a);
   });
   if (target) {
     await page.mouse.click(target.x, target.y);
+    const tCard = Date.now();
     await page.waitForTimeout(1500);
     await page.waitForFunction(() => !document.querySelector("#gaia-detail-status") ||
-      /alınamadı/.test(document.querySelector("#gaia-detail-status").textContent), null, { timeout: 30000 }).catch(() => {});
+      /alınamadı/.test(document.querySelector("#gaia-detail-status").textContent), null, { timeout: 60000 }).catch(() => {});
+    log(`card details after ${((Date.now() - tCard) / 1000).toFixed(1)}s`);
     const card = await page.evaluate(() => ({
       title: document.querySelector(".star-head h2")?.innerText,
       detail: document.querySelector("#gaia-detail-status")?.innerText || "",
@@ -137,6 +147,8 @@ const log = (...a) => console.log(...a);
 
   log("\n== console errors (" + consoleErrors.length + ")");
   consoleErrors.slice(0, 20).forEach((e) => log("  " + e));
+  log("\n== failed requests (" + badRequests.length + ")");
+  badRequests.slice(0, 30).forEach((e) => log("  " + e));
   await browser.close();
   log("\n== RESULT:", failures.length ? "FAIL\n - " + failures.join("\n - ") : "PASS");
   process.exit(failures.length ? 1 : 0);
