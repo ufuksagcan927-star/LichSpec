@@ -451,7 +451,8 @@
 
   /** Gaia satırını yıldız kartı alan adlarına çevir (yalnızca var olanlar). */
   function gaiaToStar(g) {
-    const s = { ra: g.ra, dec: g.dec, gaia: g.source_id, _origin: "gaia" };
+    // Dışarıdan gelen metin alanları sayfaya HTML olarak girer: yalnızca beklenen karakterler kalsın.
+    const s = { ra: g.ra, dec: g.dec, gaia: String(g.source_id ?? "").replace(/\D/g, ""), _origin: "gaia" };
     const map = {
       bp_rp: "bprp", teff_gspphot: "teff", logg_gspphot: "logg", mh_gspphot: "mh", radius_gspphot: "rad",
       teff_gspspec: "teff_s", logg_gspspec: "logg_s", mh_gspspec: "mh_s", fem_gspspec: "fem", alphafe_gspspec: "alpha",
@@ -461,7 +462,7 @@
     };
     for (const [k, v] of Object.entries(map)) if (g[k] != null && g[k] !== "") s[v] = g[k];
     if (g.parallax != null && g.parallax_error) { s.plx = g.parallax; s.eplx = g.parallax_error; }
-    if (g.spectraltype_esphs) s.sp = String(g.spectraltype_esphs).trim();
+    if (g.spectraltype_esphs) s.sp = String(g.spectraltype_esphs).replace(/[^A-Za-z0-9 +\-./]/g, "").trim();
     if (g.phot_variable_flag === "VARIABLE") s.var = "1";
     // Gaia G kadiri V ile aynı değil; V alanı boş bırakılır, kart G'yi ayrıca gösterir.
     return s;

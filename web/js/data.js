@@ -79,7 +79,7 @@
         if (row[n] === undefined) continue;
         const raw = String(row[n]).trim();
         if (raw === "" || raw === "NaN") break;
-        if (key === "source_id") out[key] = raw.replace(/^Gaia DR3\s*/, "");
+        if (key === "source_id") out[key] = raw.replace(/\D/g, "");
         else if (NUMERIC_KEEP_STRING.has(key)) out[key] = raw;
         else {
           const f = parseFloat(raw);
