@@ -62,9 +62,9 @@
       <button class="icon" aria-label="Kapat">✕</button>
     </form>
     <label id="drop" class="drop">
-      <input id="file" type="file" accept=".fits,.fit,.fts,image/jpeg,image/png,image/tiff">
+      <input id="file" type="file" accept=".fits,.fit,.fts,.gz,image/jpeg,image/png,image/tiff">
       <strong>Görüntüyü buraya bırak ya da seç</strong>
-      <span>FITS (WCS başlıklı) anında çözülür. JPG/PNG için Astrometry.net kullanılır; birkaç dakika sürebilir.</span>
+      <span id="drop-hint">WCS başlıklı FITS dosyaları tarayıcında anında çözülür.</span>
     </label>
     <div id="upload-status" class="upload-status" hidden></div>
     <div id="solve-result" hidden>
@@ -88,6 +88,8 @@
     window.dispatchEvent(new Event("aladin-ready"));
   </script>
   <script src="js/draugr.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/fits.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

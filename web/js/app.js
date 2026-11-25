@@ -15,7 +15,7 @@
     { id: "wise", label: "AllWISE (orta kızılötesi)", url: "https://irsa.ipac.caltech.edu/data/hips/CDS/AllWISE/RGB-W4-W2-W1", cds: "CDS/P/allWISE/color" },
   ];
 
-  let aladin, starCat, gaiaCat, footprintLayer;
+  let aladin, starCat, gaiaCat, gaiaHips, footprintLayer;
   let STARS = [];          // nesne dizisi
   let byHip = new Map();
   let lastSolve = null;
@@ -83,9 +83,16 @@
     aladin.addCatalog(starCat);
     starCat.addSources(STARS.map((s) => A.source(s.ra, s.dec, { star: s, name: D.title(s) })));
 
-    // Gaia DR3 katmanı: yakınlaşınca görünen alandaki yıldızlar sunucudan akar (1,8 milyar kaynak).
-    gaiaCat = A.catalog({ name: "Gaia DR3 (1,8 milyar yıldız)", shape: drawGaia, sourceSize: 8, color: "#8be9ef", onClick: null });
-    aladin.addCatalog(gaiaCat);
+    // Gaia DR3 katmanı (1,8 milyar kaynak). Sunucu varsa görünen alan sunucudan sorgulanır;
+    // statik barındırmada CDS'nin Gaia DR3 HiPS kataloğu kullanılır: yakınlaştıkça daha
+    // sönük yıldızların karoları gelir.
+    if (LichData.mode === "server") {
+      gaiaCat = A.catalog({ name: "Gaia DR3 (1,8 milyar yıldız)", shape: drawGaia, sourceSize: 8, color: "#8be9ef", onClick: null });
+      aladin.addCatalog(gaiaCat);
+    } else {
+      gaiaHips = A.catalogHiPS(LichData.GAIA_HIPS, { name: "Gaia DR3 (1,8 milyar yıldız)", shape: drawGaiaHips, sourceSize: 8, color: "#8be9ef", onClick: null });
+      aladin.addCatalog(gaiaHips);
+    }
 
     footprintLayer = A.graphicOverlay({ color: "#19c9d4", lineWidth: 2, name: "Yüklenen fotoğraf" });
     aladin.addOverlay(footprintLayer);
@@ -94,6 +101,11 @@
     aladin.on("objectClicked", (obj) => {
       if (obj && obj.data && obj.data.star) { clickedObject = true; showStar(obj.data.star, { goto: false }); }
       else if (obj && obj.data && obj.data.gaia) { clickedObject = true; openGaiaStar(obj.data.gaia); }
+      else if (obj && obj.data && (obj.data.Source || obj.data.source_id)) {
+        clickedObject = true;
+        const g = LichData.fromVizier(obj.data);
+        if (g.source_id) openGaiaStar(g);
+      }
     });
     aladin.on("click", (e) => {
       if (!e || e.isDragging) return;
@@ -136,7 +148,45 @@
 
   function scheduleGaia() {
     clearTimeout(gaiaTimer);
-    gaiaTimer = setTimeout(loadGaiaField, 600);
+    gaiaTimer = setTimeout(LichData.mode === "server" ? loadGaiaField : updateGaiaHips, 600);
+  }
+
+  // Statik barındırma: CDS HiPS kataloğu. Geniş alanda gizli (parlak yıldız modeliyle karışmasın).
+  const GAIA_HIPS_MAX_FOV = 10;
+  function drawGaiaHips(source, ctx) {
+    const d = source.data;
+    if (source._g === undefined) {
+      source._g = parseFloat(d.Gmag);
+      const c = parseFloat(d["BP-RP"]);
+      source._c = isFinite(c) ? D.bvColor(0.85 * c - 0.05) : "#cfe3ff";
+    }
+    const m = isFinite(source._g) ? source._g : 18;
+    const r = Math.max(1.1, Math.min(5, 4.6 - 0.22 * (m - 8)));
+    ctx.beginPath();
+    ctx.arc(source.x, source.y, r, 0, 2 * Math.PI);
+    ctx.fillStyle = source._c;
+    ctx.globalAlpha = 0.9;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  function updateGaiaHips() {
+    if (!gaiaHips) return;
+    const fov = aladin.getFov()[0];
+    const badge = gaiaBadge();
+    if (fov > GAIA_HIPS_MAX_FOV) {
+      gaiaHips.hide();
+      badge.textContent = `Gaia DR3'ün 1,8 milyar yıldızını görmek için ${D.fmt(GAIA_HIPS_MAX_FOV, 0)}°'nin altına yakınlaş`;
+      badge.className = "gaia-status hint";
+      return;
+    }
+    gaiaHips.show();
+    const n = (gaiaHips.getSources ? gaiaHips.getSources().length : 0);
+    badge.textContent = n
+      ? `Gaia DR3: bu görünümde ${n.toLocaleString("tr-TR")} yıldız yüklü · yakınlaştıkça daha sönükleri gelir`
+      : "Gaia DR3 karoları yükleniyor…";
+    badge.className = n ? "gaia-status ok" : "gaia-status busy";
+    if (!n) { clearTimeout(gaiaTimer); gaiaTimer = setTimeout(updateGaiaHips, 1500); }
   }
 
   async function loadGaiaField() {
@@ -180,10 +230,9 @@
   async function openGaiaStar(g) {
     showStar(gaiaToStar(g), { goto: false, pending: true });
     try {
-      const j = await (await fetch(`api/gaia/source/${g.source_id}`)).json();
-      if (!j.ok) throw new Error(j.error);
+      const full = await LichData.source(g.source_id);
       const cur = $("#panel-body").dataset.gaia;
-      if (cur === String(g.source_id)) showStar(gaiaToStar(j.source), { goto: false, keepScroll: true });
+      if (cur === String(g.source_id)) showStar(gaiaToStar({ ...g, ...full }), { goto: false, keepScroll: true });
     } catch (e) {
       const el = $("#gaia-detail-status");
       if (el) el.textContent = "Ayrıntılı Gaia parametreleri alınamadı: " + e.message;
@@ -217,12 +266,15 @@
     return best ? { star: best, sep: bd } : null;
   }
   function hms(ra) {
-    const h = ra / 15, hh = Math.floor(h), mm = Math.floor((h - hh) * 60), ss = ((h - hh) * 60 - mm) * 60;
+    // önce 0,1 saniyeye yuvarla, sonra böl: "60.0s" gibi taşmalar olmaz
+    const t = Math.round((((ra % 360) + 360) % 360) / 15 * 36000) % (24 * 36000);
+    const hh = Math.floor(t / 36000), mm = Math.floor((t % 36000) / 600), ss = (t % 600) / 10;
     return `${hh}h ${String(mm).padStart(2, "0")}m ${ss.toFixed(1).padStart(4, "0")}s`;
   }
   function dms(dec) {
-    const sg = dec < 0 ? "−" : "+", a = Math.abs(dec), d = Math.floor(a), m = Math.floor((a - d) * 60), s = ((a - d) * 60 - m) * 60;
-    return `${sg}${d}° ${String(m).padStart(2, "0")}′ ${s.toFixed(0).padStart(2, "0")}″`;
+    const sg = dec < 0 ? "−" : "+", t = Math.round(Math.abs(dec) * 3600);
+    const d = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+    return `${sg}${d}° ${String(m).padStart(2, "0")}′ ${String(s).padStart(2, "0")}″`;
   }
 
   // -------------------------------------------------------------- yıldız kartı
@@ -332,18 +384,14 @@
   async function loadGaia(ra, dec, rArcsec, el, star) {
     el.innerHTML = `<p class="loading">Gaia DR3 sorgulanıyor…</p>`;
     try {
-      const res = await fetch(`api/gaia/cone?ra=${ra}&dec=${dec}&r=${rArcsec}`);
-      const j = await res.json();
-      if (!j.ok) throw new Error(j.error || res.statusText);
-      if (!j.sources.length) { el.innerHTML = `<p class="muted">Bu noktada Gaia DR3 kaynağı bulunamadı.</p>`; return; }
-      const src = j.sources;
+      const src = await LichData.cone(ra, dec, rArcsec);
+      if (!src.length) { el.innerHTML = `<p class="muted">Bu noktada Gaia DR3 kaynağı bulunamadı.</p>`; return; }
       if (star) {
         // Hipparcos konumu 1991 çağında; yüksek öz hareketli yıldızlar Gaia'da (2016) birkaç ″ kaymış olabilir.
         // 30″ içindeki en parlak kaynağı al.
         let g = src.slice().sort((a, b) => (a.phot_g_mean_mag ?? 99) - (b.phot_g_mean_mag ?? 99))[0];
         try {
-          const dj = await (await fetch(`api/gaia/source/${g.source_id}`)).json();
-          if (dj.ok) g = { ...dj.source, sep_arcsec: g.sep_arcsec };
+          g = { ...g, ...(await LichData.source(g.source_id)), sep_arcsec: g.sep_arcsec };
         } catch (_) { /* alan satırıyla devam */ }
         const rows = [];
         const f = (k, v) => rows.push(`<dt>${k}</dt><dd>${v}</dd>`);
@@ -453,24 +501,56 @@
       $("#solve-result").hidden = true;
       status.hidden = false;
       status.className = "upload-status";
-      status.textContent = `"${f.name}" yükleniyor ve koordinatları çözülüyor…`;
-      const fd = new FormData();
-      fd.append("file", f);
+      status.textContent = `"${f.name}" okunuyor ve koordinatları çözülüyor…`;
       try {
-        let j = await (await fetch("api/solve", { method: "POST", body: fd })).json();
-        const t0 = Date.now(), lid = j.id;
-        while (j.status === "queued" || j.status === "solving") {
-          status.textContent = `Astrometry.net yıldız desenini eşleştiriyor… (${Math.round((Date.now() - t0) / 1000)} sn) — genelde 1–5 dk sürer.`;
-          await new Promise((r) => setTimeout(r, 5000));
-          j = await (await fetch(`api/solve/${lid}`)).json();
+        const head = new Uint8Array(await f.slice(0, 6).arrayBuffer());
+        const gz = head[0] === 0x1f && head[1] === 0x8b;
+        const headTxt = String.fromCharCode(...head);
+        if (gz || LichFits.isFits(f.name, headTxt)) {
+          try {
+            const j = await LichFits.solve(f, { stars: STARS, fieldBright: LichData.fieldBright });
+            status.hidden = true;
+            renderSolve(j);
+            return;
+          } catch (e) {
+            if (e.code !== "NO_WCS") throw e;
+            if (LichData.mode !== "server") { showNeedsSolver(true); return; }
+          }
         }
-        if (j.status !== "solved") throw new Error(j.error || "çözülemedi");
-        status.hidden = true;
-        renderSolve(j);
+        if (LichData.mode !== "server") { showNeedsSolver(false); return; }
+        await solveOnServer(f);
       } catch (e) {
         status.className = "upload-status error";
         status.textContent = e.message;
       }
+    }
+
+    // Statik barındırmada JPG/PNG için koordinat çözücü yok: kullanıcıyı ücretsiz
+    // Astrometry.net sitesine yönlendir; oradan inen WCS'li FITS burada anında çözülür.
+    function showNeedsSolver(isFitsWithoutWcs) {
+      status.className = "upload-status";
+      status.innerHTML = `
+        <p style="margin:0 0 6px"><b>${isFitsWithoutWcs ? "Bu FITS dosyasında gökyüzü koordinatı yok." : "JPG/PNG fotoğrafların koordinatını bulmak için yıldız deseni çözücüsü gerekiyor."}</b></p>
+        <ol style="margin:0;padding-left:20px">
+          <li>Fotoğrafını ücretsiz <a href="https://nova.astrometry.net/upload" target="_blank" rel="noopener">nova.astrometry.net/upload</a> sayfasına yükle (üyelik gerekmez).</li>
+          <li>Çözüm bitince sonuç sayfasındaki <b>new-image.fits</b> dosyasını indir.</li>
+          <li>O dosyayı buraya bırak: yıldızlar anında tanınır ve işaretlenir.</li>
+        </ol>`;
+    }
+
+    async function solveOnServer(f) {
+      const fd = new FormData();
+      fd.append("file", f);
+      let j = await (await fetch("api/solve", { method: "POST", body: fd })).json();
+      const t0 = Date.now(), lid = j.id;
+      while (j.status === "queued" || j.status === "solving") {
+        status.textContent = `Astrometry.net yıldız desenini eşleştiriyor… (${Math.round((Date.now() - t0) / 1000)} sn) — genelde 1–5 dk sürer.`;
+        await new Promise((r) => setTimeout(r, 5000));
+        j = await (await fetch(`api/solve/${lid}`)).json();
+      }
+      if (j.status !== "solved") throw new Error(j.error || "çözülemedi");
+      status.hidden = true;
+      renderSolve(j);
     }
   }
 
@@ -483,7 +563,7 @@
     lastSolve = j;
     const pv = j.preview;
     const img = $("#photo"), svg = $("#photo-marks"), list = $("#solve-list");
-    img.src = `data:${pv.mime};base64,${pv.data}`;
+    img.src = pv.url || `data:${pv.mime};base64,${pv.data}`;
     const W = Math.round(j.width * pv.scale), H = Math.round(j.height * pv.scale);
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
     const toPng = (x, y) => [x * pv.scale, (pv.y_flipped ? j.height - 1 - y : y) * pv.scale];
@@ -553,6 +633,10 @@
       return;
     }
     initSearch();
+    await LichData.detect();
+    $("#drop-hint").textContent = LichData.mode === "server"
+      ? "FITS (WCS başlıklı) tarayıcında anında çözülür. JPG/PNG için Astrometry.net kullanılır; birkaç dakika sürebilir."
+      : "WCS başlıklı FITS dosyaları tarayıcında anında çözülür. JPG/PNG için ücretsiz Astrometry.net'ten çözülmüş FITS'i yükleyebilirsin.";
     const ready = await new Promise((res) => {
       if (window.A) return res(true);
       window.addEventListener("aladin-ready", () => res(true), { once: true });
@@ -570,7 +654,7 @@
     }
     sel.onchange = () => setSurvey(sel.value);
     $("#toggle-stars").onchange = (e) => (e.target.checked ? starCat.show() : starCat.hide());
-    window.lichspec = { aladin, STARS, showStar, renderSolve };
+    window.lichspec = { aladin, STARS, showStar, renderSolve, get gaiaHips() { return gaiaHips; }, data: LichData };
   }
   main();
 })();

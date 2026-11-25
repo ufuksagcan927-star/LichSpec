@@ -1,0 +1,10 @@
+# Netlify: LichSpec gökyüzü sitesi statik çalışır, derleme adımı yok.
+# Netlify'da "Add new site > Import an existing project > GitHub > LichSpec" yeterli;
+# ayarlar bu dosyadan okunur.
+[build]
+  publish = "web"
+
+[[headers]]
+  for = "/data/*"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"

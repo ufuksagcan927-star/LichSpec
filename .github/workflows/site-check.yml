@@ -1,0 +1,40 @@
+name: Site check
+
+# Siteyi statik olarak (GitHub Pages / Netlify ile aynı biçimde) açıp gerçek internette
+# dener: gökyüzü, Gaia DR3 katmanı (CDS), yıldız kartı ve FITS fotoğraf çözümü.
+on:
+  push:
+    branches: ['claude/**', main]
+    paths: ['web/**', 'tools/site_check.js', 'tools/make_test_fits.py', '.github/workflows/site-check.yml']
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Make a test FITS image
+        run: |
+          pip install --quiet astropy numpy
+          python tools/make_test_fits.py site-check-out/pleiades.fits
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright@1.47.2
+          npx playwright install --with-deps chromium
+      - name: Serve the site statically and run the check
+        run: |
+          (cd web && python -m http.server 8080 > /dev/null 2>&1 &)
+          sleep 2
+          node tools/site_check.js http://localhost:8080/ site-check-out/pleiades.fits site-check-out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: site-check-screenshots
+          path: site-check-out/*.png

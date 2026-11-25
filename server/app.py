@@ -162,6 +162,12 @@ def _sep(ra1, dec1, ra2, dec2):
 _field_cache: dict[tuple, tuple[float, list]] = {}
 
 
+@app.get("/api/health")
+def api_health():
+    """Ön yüz bununla sunucu modunda çalıştığını anlar (statik barındırmada bu yol yok)."""
+    return jsonify({"ok": True, "astrometry": bool(NOVA_KEY), "gaia_mirrors": GAIA_MIRRORS})
+
+
 @app.get("/api/gaia/field")
 def api_gaia_field():
     """Görünen gökyüzü alanındaki Gaia DR3 yıldızları (en parlak `n` tanesi)."""
