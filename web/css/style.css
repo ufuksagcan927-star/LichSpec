@@ -59,6 +59,17 @@ select {
 .layout { flex: 1; display: flex; min-height: 0; }
 .sky-wrap { position: relative; flex: 1; min-width: 0; }
 #aladin { position: absolute; inset: 0; }
+/* yer, ufuk, yönler ve takımyıldız adları: gökyüzünün üstünde, tıklamaları geçirir */
+.sky-overlay { position: absolute; left: 0; top: 0; z-index: 10; pointer-events: none; }
+.place-chip {
+  position: absolute; left: 12px; top: 12px; z-index: 20; display: flex; align-items: center; gap: 6px;
+  background: #0b0d17cc; border: 1px solid var(--line); border-radius: 8px; padding: 3px 4px 3px 10px;
+  color: var(--text); font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.place-chip button {
+  background: var(--bg-3); border: 1px solid var(--line); border-radius: 6px; padding: 1px 8px; font-size: 12px; color: var(--muted);
+}
+.place-chip button:hover { color: var(--text); border-color: var(--violet); }
 .sky-status {
   position: absolute; left: 50%; transform: translateX(-50%); top: 12px; z-index: 20; pointer-events: none; white-space: nowrap;
   background: #0b0d17cc; border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px;
@@ -85,6 +96,11 @@ select {
 #panel-body { padding: 18px 20px 28px; }
 .credits { padding: 12px 20px 16px; border-top: 1px solid var(--line); font-size: 11px; line-height: 1.5; color: var(--muted); }
 .credits a { color: inherit; text-decoration: underline; text-decoration-color: #ffffff40; }
+/* Aladin Lite logosu: gökyüzünün köşesinden buraya taşınır (bağlantısıyla) */
+.logo-slot { float: right; margin: 2px 0 4px 10px; }
+.logo-slot .aladin-logo-container { position: static; display: block; min-width: 0; max-width: none; }
+.logo-slot .aladin-logo-large { width: 64px !important; }
+.logo-slot .aladin-logo-small { width: 24px !important; }
 .intro h1 { font-size: 22px; margin: 4px 0 8px; }
 .muted { color: var(--muted); }
 .quick { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
@@ -187,8 +203,8 @@ dialog.upload::backdrop { background: #05060cb3; }
   .search { flex: 1 1 100%; max-width: none; order: 3; }
   .search input { padding: 6px 10px; }
   .top-actions { gap: 8px; flex: 1 1 auto; justify-content: flex-end; }
-  .top-actions select { padding: 5px 6px; max-width: 46vw; }
-  .toggle { font-size: 12px; }
+  .toggle { font-size: 12px; gap: 4px; }
+  .place-chip { left: 8px; top: 8px; }
   .btn { padding: 6px 10px; }
   .sky-status { display: none; }
   .gaia-status { top: auto; bottom: 52px; max-width: calc(100% - 24px); }

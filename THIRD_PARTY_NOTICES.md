@@ -41,6 +41,13 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
+### `web/data/constellations.json`
+
+Built by [`tools/build_constellations.py`](tools/build_constellations.py) from `constellations.lines.json` and
+`constellations.json` in [d3-celestial](https://github.com/ofrohn/d3-celestial) 0.7.35 (BSD-3-Clause, licence
+text above). d3-celestial drew the stick figures after the IAU constellation charts (IAU and Sky & Telescope,
+Roger Sinnott and Rick Fienberg). The Turkish names are ours (`web/js/draugr.js`).
+
 ### `docs/screenshots/`
 
 Screenshots of the site. The sky imagery in them is DSS2 colour (STScI/NASA, HiPS by CDS).
@@ -53,6 +60,5 @@ Screenshots of the site. The sky imagery in them is DSS2 colour (STScI/NASA, HiP
   IDIA. "This research has made use of the VizieR catalogue access tool, CDS, Strasbourg,
   France."
 - Gaia DR3 HiPS catalogue (CDS).
-- HiPS sky surveys built by CDS: DSS2 colour (STScI/NASA), SDSS9, 2MASS and AllWISE (tiles
-  served by IRSA), plus Pan-STARRS DR1 and Axel Mellinger's Milky Way panorama
-  (© A. Mellinger), served by CDS.
+- HiPS sky surveys built by CDS: Axel Mellinger's all-sky Milky Way photograph (© A. Mellinger,
+  served by CDS) and DSS2 colour (STScI/NASA, tiles served by IRSA).

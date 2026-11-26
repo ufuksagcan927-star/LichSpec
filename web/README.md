@@ -32,7 +32,8 @@ Statik çalışırken Gaia DR3 verisi tarayıcıdan doğrudan CDS'ten gelir: CDS
 
 | Parça | Ne yapar | Veri |
 |---|---|---|
-| Gökyüzü | Aladin Lite v3, HiPS karolarını akıtır; tüm gökyüzü siteye gömülmez, yalnızca ekrandaki karolar indirilir | DSS2, Mellinger, Pan-STARRS, SDSS, 2MASS, AllWISE |
+| Gökyüzü | Aladin Lite v3, HiPS karolarını akıtır; tüm gökyüzü siteye gömülmez, yalnızca ekrandaki karolar indirilir. Tek görünüm: gökyüzüne yerden, içeriden bakılır (stereografik izdüşüm, planetaryumlardaki gibi). Geniş bakışta Mellinger'in tüm gökyüzü fotoğrafı, yakınlaştıkça (40° → 12°) DSS2 yavaşça üstüne biner | Mellinger, DSS2 |
+| Ufuk ve takımyıldızlar | Gözlemcinin yerine ve saatine göre yer, ufuk çizgisi, yönler (K, D, G, B); yukarısı hep başucu. Konum açılışta saat diliminden (İstanbul vb.), "Konumum" düğmesiyle tarayıcıdan alınır. Takımyıldız çizgileri ve Türkçe adları. Yıldız kartı yıldızın şu an ufkun kaç derece üstünde ve hangi yönde olduğunu yazar | `web/js/sky.js`, `web/data/constellations.json` |
 | Parlak yıldız modeli | 15.397 yıldız (Hipparcos V < 7) haritada tıklanabilir, aranabilir, çevrimdışı | `web/data/bright_stars.json` |
 | Kayıtlı tüm yıldızlar | 2,5°'nin altına yakınlaşınca görünen alandaki Gaia DR3 yıldızları (en parlak 3.000) akar; yakınlaştıkça daha sönükleri gelir. Böylece Gaia'nın 1,8 milyar yıldızının hepsine ulaşılır. Tıklanan yıldızın kartı, ölçülmüş tüm parametrelerinden (Teff, log g, [M/H], element oranları, FLAME kütle/yaş/ışınım gücü, dikine hız) otomatik oluşur | `web/js/data.js` (VizieR ya da `GET /api/gaia/field`, `GET /api/gaia/source/<id>`) |
 | Gaia yansıları | ESA arşivi kapalıysa (ör. DR4 hazırlığı) Heidelberg ARI yansısına otomatik geçilir; sıra `GAIA_TAP_MIRRORS` ile değişir | `server/app.py` |
@@ -43,11 +44,12 @@ Statik çalışırken Gaia DR3 verisi tarayıcıdan doğrudan CDS'ten gelir: CDS
 ## Kataloğu yeniden üretmek
 
 ```bash
-npm pack d3-celestial@0.7.35 && tar xzf d3-celestial-0.7.35.tgz   # yıldız adları
+npm pack d3-celestial@0.7.35 && tar xzf d3-celestial-0.7.35.tgz   # yıldız adları, takımyıldızlar
 python tools/build_bright_catalog.py --vmax 7.0 --names package/data/starnames.json
+python tools/build_constellations.py package/data web/data/constellations.json
 ```
 
-Kaynaklar: ESA Hipparcos Kataloğu (1997), Gaia DR3 `astrophysical_parameters` (Gaia Collaboration 2023), yıldız adları d3-celestial (BSD-3, O. Frohn).
+Kaynaklar: ESA Hipparcos Kataloğu (1997), Gaia DR3 `astrophysical_parameters` (Gaia Collaboration 2023), yıldız adları ve takımyıldızlar d3-celestial (BSD-3, O. Frohn; çizgiler IAU ve Sky & Telescope haritalarından).
 
 ## Bilinen sınırlar
 

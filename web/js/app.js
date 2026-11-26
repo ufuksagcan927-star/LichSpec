@@ -5,20 +5,19 @@
   const $ = (s, el = document) => el.querySelector(s);
   const esc = (x) => String(x ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-  // Gökyüzü görüntüleri: HiPS (çok çözünürlüklü karo) — tüm gökyüzü sunucudan akıtılır, siteye gömülmez.
-  const SURVEYS = [
-    { id: "dss", label: "DSS2 renkli (optik)", url: "https://irsa.ipac.caltech.edu/data/hips/CDS/DSS2/color", cds: "CDS/P/DSS2/color" },
-    { id: "mellinger", label: "Mellinger (geniş alan)", cds: "CDS/P/Mellinger/color" },
-    { id: "panstarrs", label: "Pan-STARRS DR1 (derin)", cds: "CDS/P/PanSTARRS/DR1/color-z-zg-g" },
-    { id: "sdss", label: "SDSS9 renkli", url: "https://irsa.ipac.caltech.edu/data/hips/CDS/SDSS/DR9/color", cds: "CDS/P/SDSS9/color" },
-    { id: "2mass", label: "2MASS (kızılötesi)", url: "https://irsa.ipac.caltech.edu/data/hips/CDS/2MASS/Color", cds: "CDS/P/2MASS/color" },
-    { id: "wise", label: "AllWISE (orta kızılötesi)", url: "https://irsa.ipac.caltech.edu/data/hips/CDS/AllWISE/RGB-W4-W2-W1", cds: "CDS/P/allWISE/color" },
-  ];
+  // Gökyüzü görüntüleri: HiPS (çok çözünürlüklü karo) — sunucudan akıtılır, siteye gömülmez.
+  // Geniş bakışta Mellinger'in tüm gökyüzü fotoğrafı (Samanyolu gözle görüldüğü gibi); yakınlaştıkça
+  // DSS2 renkli plaka taramaları yavaşça üstüne biner. Seçenek yok: tek, gerçekçi bir görünüm.
+  const WIDE_HIPS = "https://alasky.cds.unistra.fr/MellingerRGB";
+  const DETAIL_HIPS = "https://irsa.ipac.caltech.edu/data/hips/CDS/DSS2/color";
+  const DETAIL_FROM = 40, DETAIL_FULL = 12;   // görüş alanı (derece): DSS2 bu aralıkta belirir
 
-  let aladin, starCat, gaiaCat, footprintLayer;
+  let aladin, starCat, gaiaCat, footprintLayer, sky;
   let STARS = [];          // nesne dizisi
+  let CONS = null;         // takımyıldız çizgileri ve ad konumları
   let byHip = new Map();
   let lastSolve = null;
+  let magLimit = 6;        // görüş alanına göre çizilen en sönük yıldız
 
   // -------------------------------------------------------------- katalog
   async function loadCatalog() {
@@ -34,13 +33,24 @@
     $("#star-count").textContent = STARS.length.toLocaleString("tr-TR");
   }
 
+  async function loadConstellations() {
+    const r = await fetch("data/constellations.json");
+    CONS = await r.json();
+  }
+
   function starRadius(v) {
     // parlak yıldız = büyük nokta
     return Math.max(1.4, Math.min(9, 5.2 - 0.62 * v));
   }
 
+  /** Geniş bakışta yalnızca gözle görülebilecek kadar parlak yıldızlar; yakınlaştıkça hepsi. */
+  function updateMagLimit(fov) {
+    magLimit = fov > 120 ? 5.0 : fov > 60 ? 5.6 : fov > 25 ? 6.3 : 9;
+  }
+
   function drawStar(source, ctx) {
     const s = source.data.star;
+    if ((s.v ?? 6.5) > magLimit) return;
     const r = starRadius(s.v ?? 6.5);
     const col = s._color || (s._color = s.bv != null ? D.bvColor(s.bv) : "#ffffff");
     ctx.beginPath();
@@ -61,22 +71,41 @@
   // -------------------------------------------------------------- gökyüzü
   async function initSky() {
     await A.init;
-    const sv = SURVEYS[0];
+    // Açılışta gözlemcinin yerinden güneye, ufkun 35° üstüne bakılır.
+    const place = LichSky.defaultPlace();
+    const start = LichSky.hor2eq(35, 180, LichSky.lst(new Date(), place.lon), place.lat);
+    const box = $("#aladin");
+    const fov0 = box.clientHeight > box.clientWidth ? 75 : 100;   // dik telefon ekranında daha dar
     aladin = A.aladin("#aladin", {
-      survey: sv.url || sv.cds,
-      fov: 100,
-      target: "05 35 17.3 -05 23 28",   // Orion
-      projection: "SIN",   // küre görünümü: sürükleyerek 360° döndürülür
+      survey: WIDE_HIPS,
+      fov: fov0,
+      target: `${start.ra.toFixed(4)} ${start.dec >= 0 ? "+" : ""}${start.dec.toFixed(4)}`,
+      // Stereografik izdüşüm: gökyüzüne içeriden, yerden bakılıyormuş gibi (planetaryum görünümü).
+      // Küre kenarı hiç görünmez; seçenek düğmesi yok.
+      projection: "STG",
       cooFrame: "ICRSd",
       showReticle: false,
-      showCooGridControl: true,
-      showSimbadPointerControl: true,
-      showLayersControl: true,
+      showCooGridControl: false,
+      showSimbadPointerControl: false,
+      showLayersControl: false,
       showFullscreenControl: false,
       showShareControl: false,
-      showContextMenu: true,
-      showFrame: true,
-      showProjectionControl: true,
+      showContextMenu: false,
+      showFrame: false,
+      showCooLocation: false,
+      showProjectionControl: false,
+      showSettingsControl: false,
+      showStatusBar: false,
+      backgroundColor: "rgb(5, 7, 16)",   // karo gelmeyen yer gri değil, gece karası
+    });
+    aladin.setFoVRange(0.002, 190);
+    updateMagLimit(fov0);
+    // Mellinger CDS'den gelir; CDS'ye ulaşılamazsa geniş bakışta da DSS2 (IRSA) kullanılır.
+    reachable(WIDE_HIPS + "/properties", 7000).then((ok) => {
+      if (ok) return;
+      wideFailed = true;
+      if (detailOn) { aladin.removeImageLayer("detail"); detailOn = false; }
+      aladin.setBaseImageLayer(DETAIL_HIPS);
     });
 
     starCat = A.catalog({ name: "LichSpec parlak yıldızlar", shape: drawStar, sourceSize: 14, color: "#ffffff", onClick: null });
@@ -105,16 +134,65 @@
       }, 0);
     });
 
-    const status = $("#sky-status");
-    const upd = () => {
-      const [ra, dec] = aladin.getRaDec();
-      const fov = aladin.getFov()[0];
-      status.textContent = `RA ${D.fmt(ra, 3)}°  Dec ${D.fmt(dec, 3)}°  ·  görüş alanı ${fov >= 1 ? D.fmt(fov, 1) + "°" : D.fmt(fov * 60, 1) + "′"}`;
-    };
-    aladin.on("positionChanged", () => { upd(); scheduleGaia(); });
-    aladin.on("zoomChanged", () => { upd(); scheduleGaia(); });
-    upd();
+    // Ufuk, yer, yönler, takımyıldızlar
+    sky = LichSky.create(aladin, $("#aladin"), CONS, D.CON_TR, { onChange: updateStatus });
+    moveAladinLogo();
+
+    aladin.on("positionChanged", () => scheduleGaia());
+    aladin.on("zoomChanged", () => { updateImagery(); scheduleGaia(); });
+    updateImagery();
+    updatePlace();
+    setInterval(updatePlace, 30000);
     initGaiaLayer();
+  }
+
+  /** Durum satırı: ufuk açıkken nereye baktığın, kapalıyken gök koordinatı. */
+  function updateStatus(v) {
+    const fovTxt = v.fov >= 1 ? D.fmt(v.fov, v.fov >= 10 ? 0 : 1) + "°" : D.fmt(v.fov * 60, 1) + "′";
+    $("#sky-status").textContent = sky && sky.horizon
+      ? `${cap(v.dir)} yönüne, ufkun ${D.fmt(Math.abs(v.alt), 0)}° ${v.alt >= 0 ? "üstüne" : "altına"} bakıyorsun · görüş alanı ${fovTxt}`
+      : `RA ${D.fmt(v.ra, 2)}°  Dec ${D.fmt(v.dec, 2)}° · görüş alanı ${fovTxt}`;
+  }
+  const cap = (t) => t.charAt(0).toLocaleUpperCase("tr-TR") + t.slice(1);
+
+  function updatePlace() {
+    if (!sky) return;
+    const p = sky.place;
+    const t = new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+    $("#place-name").textContent = p.name;
+    $("#place-time").textContent = t;
+  }
+
+  async function reachable(url, timeoutMs) {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), timeoutMs);
+    try { return (await fetch(url, { signal: ctl.signal })).ok; } catch (_) { return false; } finally { clearTimeout(t); }
+  }
+
+  /** Yakınlaştıkça DSS2 ayrıntı katmanını görünür yap; geniş bakışta karolarını hiç indirme. */
+  let detailOn = false, wideFailed = false;
+  function updateImagery() {
+    const fov = aladin.getFov()[0];
+    updateMagLimit(fov);
+    if (wideFailed) return;   // taban zaten DSS2
+    const op = fov >= DETAIL_FROM ? 0 : fov <= DETAIL_FULL ? 1 : (DETAIL_FROM - fov) / (DETAIL_FROM - DETAIL_FULL);
+    if (op > 0 && !detailOn) { aladin.setOverlayImageLayer(DETAIL_HIPS, "detail"); detailOn = true; }
+    if (detailOn && fov > DETAIL_FROM + 5) { aladin.removeImageLayer("detail"); detailOn = false; return; }
+    if (detailOn) {
+      const l = aladin.getOverlayImageLayer("detail");
+      if (l && l.setOpacity) l.setOpacity(op);
+    }
+  }
+
+  /** Aladin Lite logosu gökyüzünün köşesinden kaynak notunun yanına taşınır (bağlantısıyla birlikte). */
+  function moveAladinLogo() {
+    const logo = document.querySelector("#aladin .aladin-logo-container");
+    const slot = $("#aladin-logo-slot");
+    if (!logo || !slot) return;
+    slot.appendChild(logo);
+    // Aladin boyut sınıfını yalnızca kendi kutusundaki logoya verir; burada büyük logo sabit kalsın.
+    const l = logo.querySelector(".aladin-logo");
+    if (l) { l.classList.remove("aladin-logo-small"); l.classList.add("aladin-logo-large"); }
   }
 
   // -------------------------------------------------------------- Gaia DR3 akışı
@@ -270,12 +348,6 @@
     }
   }
 
-  function setSurvey(id) {
-    const sv = SURVEYS.find((x) => x.id === id);
-    if (!sv) return;
-    aladin.setBaseImageLayer(aladin.newImageSurvey(sv.url || sv.cds));
-  }
-
   function gotoStar(s, fov = 6) {
     aladin.gotoRaDec(s.ra, s.dec);
     if (aladin.getFov()[0] > fov) aladin.setFoV(fov);
@@ -318,6 +390,12 @@
 
     const facts = [];
     const fact = (k, v, src) => facts.push(`<dt>${k}</dt><dd>${v}${src ? `<span class="src">${esc(src)}</span>` : ""}</dd>`);
+    if (sky) {
+      const h = sky.altaz(s.ra, s.dec);
+      fact(`Şu an (${esc(sky.place.name)})`, h.alt > 0
+        ? `ufkun ${D.fmt(h.alt, 0)}° üstünde, ${sky.dirName(h.az)} yönünde`
+        : `ufkun altında, şu an görünmüyor`, "hesaplandı");
+    }
     fact("Koordinat", `${hms(s.ra)} &nbsp; ${dms(s.dec)}`);
     if (s.v != null) fact("Parlaklık (V)", `${D.fmt(s.v, 2)} kadir`, "Hipparcos");
     if (s.g != null) fact("Parlaklık (G)", `${D.fmt(s.g, 2)} kadir`, "Gaia DR3");
@@ -658,11 +736,9 @@
 
   // -------------------------------------------------------------- başlat
   async function main() {
-    const sel = $("#survey");
-    sel.innerHTML = SURVEYS.map((s) => `<option value="${s.id}">${esc(s.label)}</option>`).join("");
     initUpload();
     try {
-      await loadCatalog();
+      await Promise.all([loadCatalog(), loadConstellations()]);
     } catch (e) {
       $("#sky-status").textContent = "Yıldız kataloğu yüklenemedi: " + e.message;
       return;
@@ -687,9 +763,34 @@
       $("#sky-status").textContent = "Gökyüzü başlatılamadı: " + e;
       return;
     }
-    sel.onchange = () => setSurvey(sel.value);
     $("#toggle-stars").onchange = (e) => (e.target.checked ? starCat.show() : starCat.hide());
-    window.lichspec = { aladin, STARS, showStar, renderSolve, get gaiaMode() { return gaiaMode; }, data: LichData };
+    $("#toggle-lines").onchange = (e) => sky.setLines(e.target.checked);
+    $("#toggle-horizon").onchange = (e) => { sky.setHorizon(e.target.checked); };
+    $("#btn-locate").onclick = locate;
+    window.lichspec = {
+      aladin, STARS, showStar, renderSolve, sky, data: LichData,
+      get gaiaMode() { return gaiaMode; },
+      get imagery() { return { wide: wideFailed ? "DSS2 (Mellinger unreachable)" : "Mellinger", detail: detailOn }; },
+    };
+  }
+
+  /** Tarayıcıdan gerçek konumu iste (yalnızca düğmeye basınca). */
+  function locate() {
+    const btn = $("#btn-locate");
+    if (!navigator.geolocation) { btn.textContent = "Konum yok"; return; }
+    btn.disabled = true;
+    btn.textContent = "Konum alınıyor…";
+    navigator.geolocation.getCurrentPosition((pos) => {
+      const { latitude: lat, longitude: lon } = pos.coords;
+      sky.setPlace({ name: "Konumun", lat: +lat.toFixed(2), lon: +lon.toFixed(2) });
+      updatePlace();
+      btn.disabled = false;
+      btn.textContent = "Konumum";
+    }, () => {
+      btn.disabled = false;
+      btn.textContent = "Konum izni yok";
+      setTimeout(() => (btn.textContent = "Konumum"), 3000);
+    }, { timeout: 15000, maximumAge: 600000 });
   }
   main();
 })();

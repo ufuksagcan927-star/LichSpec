@@ -35,6 +35,23 @@ const PROBES = [
 const failures = [];
 const log = (...a) => console.log(...a);
 
+/** Small JPEG of the page written into the log as base64 lines ("SHOT <name> <i>/<n> <data>"), so the
+ *  live rendering can be looked at even where the uploaded artifact cannot be downloaded. */
+async function dumpShot(page, name) {
+  const png = await page.screenshot();
+  const b64 = await page.evaluate(async (src) => {
+    const img = new Image();
+    img.src = "data:image/png;base64," + src;
+    await img.decode();
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.width / 2); c.height = Math.round(img.height / 2);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL("image/jpeg", 0.62).split(",")[1];
+  }, png.toString("base64"));
+  const n = Math.ceil(b64.length / 4000);
+  for (let i = 0; i < n; i++) log(`SHOT ${name} ${i + 1}/${n} ${b64.slice(i * 4000, (i + 1) * 4000)}`);
+}
+
 (async () => {
   const browser = await chromium.launch({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
   const page = await browser.newPage({ viewport: { width: 1440, height: 860 }, deviceScaleFactor: 1 });
@@ -57,8 +74,34 @@ const log = (...a) => console.log(...a);
   log("mode:", mode);
   const order = await page.evaluate(() => window.lichspec && window.lichspec.data.mirrors && window.lichspec.data.mirrors()).catch((e) => String(e));
   log("VizieR mirror order:", JSON.stringify(order));
-  await page.waitForTimeout(4000);
+  await page.waitForTimeout(6000);
   await page.screenshot({ path: path.join(outDir, "1_home.png") });
+
+  log("\n== sky view (from the ground: stereographic, horizon, constellations)");
+  const view = await page.evaluate(() => {
+    const L = window.lichspec, a = L.aladin;
+    const cv = document.querySelector(".sky-overlay");
+    let groundAlpha = null;
+    if (cv && cv.width) groundAlpha = cv.getContext("2d").getImageData(Math.floor(cv.width / 2), cv.height - 4, 1, 1).data[3];
+    return {
+      projection: a.view && a.view.projection && a.view.projection.label,
+      status: document.querySelector("#sky-status").textContent,
+      place: document.querySelector(".place-chip") && document.querySelector(".place-chip").innerText.replace(/\s+/g, " "),
+      view: L.sky && L.sky.view(),
+      groundAlpha,
+      imagery: L.imagery,
+      logoInCredits: !!document.querySelector("#aladin-logo-slot .aladin-logo-container"),
+    };
+  });
+  log(JSON.stringify(view));
+  if (view.projection !== "Stereographic") failures.push("sky is not in the stereographic (from-the-ground) projection");
+  if (!/bakıyorsun/.test(view.status)) failures.push("sky status does not say where you are looking");
+  if (!view.groundAlpha) failures.push("ground/horizon overlay not drawn");
+  if (flags["dump-shots"]) await dumpShot(page, "home");
+  await page.evaluate(() => { lichspec.aladin.gotoRaDec(83.82, -5.39); lichspec.aladin.setFoV(9); });
+  await page.waitForTimeout(8000);
+  log("zoomed into Orion (9°):", JSON.stringify(await page.evaluate(() => window.lichspec.imagery)));
+  if (flags["dump-shots"]) await dumpShot(page, "orion9");
 
   log("\n== external services, fetched from inside the page (CORS)");
   for (const [name, u] of PROBES) {
