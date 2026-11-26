@@ -47,6 +47,7 @@
           <h1>Gökyüzüne dokun</h1>
           <p>Haritadaki bir yıldıza tıkla. LichSpec o yıldızı tanır, ölçülmüş verilerini getirir ve Draugr ne gördüğünü anlatır.</p>
           <p class="muted">Gökyüzünü bulunduğun yerden, şu an göründüğü gibi görüyorsun: aşağısı yer, ufukta yönler (K, D, G, B). Sürükleyerek etrafına bakabilir, fare tekerleğiyle ya da iki parmakla yakınlaşabilirsin.</p>
+          <p class="muted">Gece çektiğin bir fotoğrafı <b>Fotoğraf yükle</b> ile bırakırsan Phobetor içindeki yıldızları bulur, hangi yıldızlar ve takımyıldızlar olduğunu fotoğrafın üstüne yazar.</p>
           <p class="muted">Haritada <b id="star-count">…</b> parlak yıldız modellenmiş durumda (Hipparcos V&nbsp;&lt;&nbsp;7, Gaia DR3 parametreleriyle). Yakınlaştıkça Gaia DR3'ün kaydettiği 1,8 milyar yıldız alan alan yüklenir; her birine tıklayınca kartı ölçülmüş verilerinden otomatik oluşur.</p>
           <div class="quick">
             <button data-goto="Sirius">Sirius</button>
@@ -74,9 +75,9 @@
       <button class="icon" aria-label="Kapat">✕</button>
     </form>
     <label id="drop" class="drop">
-      <input id="file" type="file" accept=".fits,.fit,.fts,.gz,image/jpeg,image/png,image/tiff">
-      <strong>Görüntüyü buraya bırak ya da seç</strong>
-      <span id="drop-hint">WCS başlıklı FITS dosyaları tarayıcında anında çözülür.</span>
+      <input id="file" type="file" accept=".fits,.fit,.fts,.gz,image/jpeg,image/png,image/webp,image/heic,image/heif">
+      <strong>Gece fotoğrafını buraya bırak ya da seç</strong>
+      <span id="drop-hint">Telefonla ya da fotoğraf makinesiyle çekilmiş JPG/PNG: Phobetor yıldızları bulur, LichSpec deseni gökyüzüyle eşleştirip yıldızların ve takımyıldızların adını yazar. WCS başlıklı FITS de olur. Her şey tarayıcında çalışır, fotoğraf hiçbir yere gönderilmez.</span>
     </label>
     <div id="upload-status" class="upload-status" hidden></div>
     <div id="solve-result" hidden>
@@ -103,6 +104,8 @@
   <script src="js/sky.js"></script>
   <script src="js/data.js"></script>
   <script src="js/fits.js"></script>
+  <script src="js/solve.js"></script>
+  <script src="js/phobetor.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
