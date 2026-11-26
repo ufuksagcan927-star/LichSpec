@@ -275,10 +275,40 @@
     return rows.map(fromVizier).filter((g) => g.ra != null && g.dec != null);
   }
 
-  /** Tek bir Gaia kaynağının tüm ölçülmüş parametreleri. ra/dec biliniyorsa sorgu hızlanır. */
-  async function source(id, ra, dec) {
+  /**
+   * Gaia DR3 kimliğinin taşıdığı yaklaşık konum: kimlik / 2^35, kaynağın HEALPix hücresidir (düzey 12,
+   * iç içe sıra, ICRS). Hücre merkezi gerçek 2016 konumundan en çok ~50″ uzakta (20.000 rastgele Gaia
+   * kaynağıyla denendi). Hücre, kimliğin verildiği çağdaki (~2000) konumdur: öz hareketi büyük
+   * yıldızlar 2016'ya kadar yine kayar (Barnard Yıldızı 2,6′).
+   */
+  const JRLL = [2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4], JPLL = [1, 3, 5, 7, 0, 2, 4, 6, 1, 3, 5, 7];
+  function idPosition(id) {
+    const NSIDE = 4096, NPFACE = NSIDE * NSIDE;
+    const pix = Number(BigInt(String(id)) >> 35n);
+    const face = Math.floor(pix / NPFACE), ipf = pix % NPFACE;
+    let ix = 0, iy = 0;
+    for (let b = 0; b < 12; b++) {                       // çift bitler → x, tek bitler → y
+      ix |= (Math.floor(ipf / 2 ** (2 * b)) % 2) << b;
+      iy |= (Math.floor(ipf / 2 ** (2 * b + 1)) % 2) << b;
+    }
+    const jr = JRLL[face] * NSIDE - ix - iy - 1;
+    let nr, z, kshift = 0;
+    if (jr < NSIDE) { nr = jr; z = 1 - (nr * nr) / (3 * NPFACE); }
+    else if (jr > 3 * NSIDE) { nr = 4 * NSIDE - jr; z = (nr * nr) / (3 * NPFACE) - 1; }
+    else { nr = NSIDE; z = ((2 * NSIDE - jr) * 2) / (3 * NSIDE); kshift = (jr - NSIDE) & 1; }
+    let jp = (JPLL[face] * nr + ix - iy + 1 + kshift) / 2;
+    if (jp > 4 * NSIDE) jp -= 4 * NSIDE;
+    if (jp < 1) jp += 4 * NSIDE;
+    return [(jp - (kshift + 1) * 0.5) * (90 / nr), 90 - (Math.acos(z) * 180) / Math.PI];
+  }
+
+  /**
+   * Tek bir Gaia kaynağının tüm ölçülmüş parametreleri. ra/dec biliniyorsa sorgu hızlanır;
+   * rArcsec: kaynağın o noktadan en fazla ne kadar uzakta olabileceği.
+   */
+  async function source(id, ra, dec, rArcsec = 5) {
     if (mode === "server") return (await getJson(`api/gaia/source/${id}`)).source;
-    const pos = ra != null && dec != null ? { "-c": coo(ra, dec), "-c.rs": "5" } : {};
+    const pos = ra != null && dec != null ? { "-c": coo(ra, dec), "-c.rs": String(rArcsec) } : {};
     const q = (table) => vizier({ "-source": table, ...pos, "Source": String(id), "-out.all": "1", "-out.max": "1" });
     const [main, par] = await Promise.all([q(T_MAIN), q(T_PARAM).catch(() => [])]);
     if (!main.length) throw new Error("kaynak bulunamadı");
@@ -305,7 +335,7 @@
   }
 
   global.LichData = {
-    detect, cone, field, fieldBright, source, fromVizier, parseTsv, mirrors, hipsAvailable,
+    detect, cone, field, fieldBright, source, idPosition, fromVizier, parseTsv, mirrors, hipsAvailable,
     maxFieldRadius, galacticLat, GAIA_HIPS,
     get mode() { return mode; },
   };

@@ -110,17 +110,81 @@
     const altaz = (ra, dec) => eq2hor(ra, dec, LST(), state.place.lat);
     const toRaDec = (alt, az) => hor2eq(alt, az, LST(), state.place.lat);
 
-    /** Görünümü başucu yukarıda kalacak biçimde döndürür (ufuk açıkken). */
-    function keepUpright(ra, dec) {
-      let want = 0;
-      if (state.horizon) {
-        const z = { ra: LST(), dec: state.place.lat };            // başucu noktası
-        if (angSep(ra, dec, z.ra, z.dec) < 0.3) return;            // tam başucunda yön tanımsız
-        want = -posAngle(ra, dec, z.ra, z.dec);
-      }
-      const cur = aladin.getRotation();
-      let d = norm360(want - cur + 180) - 180;
+    // ---------------------------------------------------------------- yerden bakış gezinmesi
+    // Ufuk açıkken bakış yönü (yükseklik, yön açısı) olarak tutulur: sürükleyince yön açısı ve yükseklik
+    // değişir, yükseklik başucunda (90°) durur. Böylece başucundan geçerken görüntü ters dönmez
+    // (Aladin'in kendi sürüklemesi ekvator koordinatlarında çalışır; başucunu aşınca "yukarısı"
+    // 180° döner ve sürükleme yön değiştirip ileri geri sıçrar).
+    const ALT_MIN = -60, ALT_MAX = 90;
+    const nav = { alt: null, az: null, ra: null, dec: null };
+
+    /** Aladin'in merkezinden bakış yönünü günceller; başucunda yön açısı tanımsız olduğundan son değer kalır. */
+    function syncNav() {
+      const [ra, dec] = aladin.getRaDec();
+      const h = altaz(ra, dec);
+      nav.alt = h.alt;
+      if (h.alt < 89.5 || nav.az == null) nav.az = h.az;
+      nav.ra = ra;
+      nav.dec = dec;
+    }
+
+    /** Ekranın yukarısı: bakılan noktadan yükseklik artan yöne (başucunda bile tanımlı). */
+    function uprightRotation() {
+      const a = nav.alt * R, A = nav.az * R, d = 0.01;
+      const c = [Math.cos(a) * Math.cos(A), Math.cos(a) * Math.sin(A), Math.sin(a)];
+      const u = [-Math.sin(a) * Math.cos(A), -Math.sin(a) * Math.sin(A), Math.cos(a)];
+      const p = c.map((ci, i) => ci * Math.cos(d) + u[i] * Math.sin(d));
+      const up = toRaDec(Math.asin(clamp1(p[2])) / R, Math.atan2(p[1], p[0]) / R);
+      return -posAngle(nav.ra, nav.dec, up.ra, up.dec);
+    }
+
+    function keepUpright() {
+      const want = state.horizon ? uprightRotation() : 0;
+      const d = norm360(want - aladin.getRotation() + 180) - 180;
       if (Math.abs(d) > 0.02) aladin.setRotation(norm360(want + 180) - 180);
+    }
+
+    /** Bakış yönünü (yükseklik, yön açısı) uygula. */
+    function applyNav() {
+      nav.alt = Math.max(ALT_MIN, Math.min(ALT_MAX, nav.alt));
+      nav.az = norm360(nav.az);
+      const e = toRaDec(nav.alt, nav.az);
+      nav.ra = e.ra;
+      nav.dec = e.dec;
+      aladin.gotoRaDec(e.ra, e.dec);
+      keepUpright();
+      dirty = true;
+    }
+
+    /** Ekran merkezinde bir pikselin kaç derece olduğu. */
+    function degPerPx() {
+      const w = el.clientWidth, h = el.clientHeight;
+      const a = aladin.pix2world(w / 2, h / 2), b = aladin.pix2world(w / 2 + 10, h / 2);
+      if (a && b && isFinite(a[0]) && isFinite(b[0])) {
+        const s = angSep(a[0], a[1], b[0], b[1]) / 10;
+        if (s > 0 && isFinite(s)) return s;
+      }
+      return aladin.getFov()[0] / Math.max(1, w);
+    }
+
+    // Aladin sürüklemeyi wasm.goFromTo(önceki x, y, şimdiki x, y) ile yapar (aladin-lite 3.6.5, sürüm
+    // sabit). Ufuk açıkken bu çağrı yerden bakış gezinmesine çevrilir; tıklama ve nesne seçimi Aladin'de
+    // kalır. İşlev bulunmazsa Aladin'in kendi sürüklemesi kullanılır.
+    const wasm = aladin.view && aladin.view.wasm;
+    const nativeGoFromTo = wasm && typeof wasm.goFromTo === "function" ? wasm.goFromTo.bind(wasm) : null;
+    const altAzDrag = !!nativeGoFromTo;
+    if (altAzDrag) {
+      wasm.goFromTo = function (x1, y1, x2, y2) {
+        if (!state.horizon) return nativeGoFromTo(x1, y1, x2, y2);
+        syncNav();
+        const k = degPerPx();
+        nav.alt += (y2 - y1) * k;                                        // aşağı çek: yukarı bak
+        nav.az -= ((x2 - x1) * k) / Math.max(0.05, Math.cos(Math.min(ALT_MAX, nav.alt) * R));
+        applyNav();
+      };
+    }
+    function setInertia(on) {
+      try { if (wasm && typeof wasm.setInertia === "function") wasm.setInertia(on); } catch (_) { /* eski sürüm */ }
     }
 
     function project(ra, dec) {
@@ -131,25 +195,63 @@
       return [Math.max(-2e5, Math.min(2e5, x)), Math.max(-2e5, Math.min(2e5, y))];
     }
 
-    function drawGround(w, h, centerAlt) {
-      const pts = [];
-      for (let az = 0.5; az < 360; az += 2) {
-        const e = toRaDec(0, az);
-        const p = project(e.ra, e.dec);
-        if (p) pts.push(p);
-      }
-      if (pts.length < 8) return;
+    const projectHor = (alt, az) => { const e = toRaDec(alt, az); return project(e.ra, e.dec); };
+
+    /** Üç noktadan geçen çember [cx, cy, r]; noktalar bir doğru üzerindeyse null. */
+    function circle3(a, b, c) {
+      const d = 2 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1]));
+      if (Math.abs(d) < 1e-9) return null;
+      const a2 = a[0] * a[0] + a[1] * a[1], b2 = b[0] * b[0] + b[1] * b[1], c2 = c[0] * c[0] + c[1] * c[1];
+      const ux = (a2 * (b[1] - c[1]) + b2 * (c[1] - a[1]) + c2 * (a[1] - b[1])) / d;
+      const uy = (a2 * (c[0] - b[0]) + b2 * (a[0] - c[0]) + c2 * (b[0] - a[0])) / d;
+      return [ux, uy, Math.hypot(a[0] - ux, a[1] - uy)];
+    }
+
+    /**
+     * Yer ve ufuk. Stereografik izdüşümde ufuk (gökyüzünde bir büyük çember) ekranda tam bir çember ya da
+     * doğrudur: bakılan yöndeki üç ufuk noktasından çizilir, bu yüzden ufuk her yakınlaşmada pürüzsüzdür ve
+     * ufka tam yatay bakarken de (çember doğruya döner) yer doğru tarafta kalır. Yer opaktır.
+     */
+    function drawGround(w, h) {
+      const az0 = nav.az;
+      const p1 = projectHor(0, az0 - 40), p2 = projectHor(0, az0), p3 = projectHor(0, az0 + 40);
+      const g = projectHor(-5, az0);                                     // kesin yerde bir nokta
+      if (!p1 || !p2 || !p3 || !g) return;
+      const BIG = 1e6;
+      const c = circle3(p1, p2, p3);
+      const horizonPath = () => {
+        ctx.beginPath();
+        if (c && c[2] < 2e5) ctx.arc(c[0], c[1], c[2], 0, 2 * Math.PI);
+        else {
+          let dx = p3[0] - p1[0], dy = p3[1] - p1[1];
+          const n = Math.hypot(dx, dy) || 1;
+          dx /= n; dy /= n;
+          ctx.moveTo(p2[0] - dx * BIG, p2[1] - dy * BIG);
+          ctx.lineTo(p2[0] + dx * BIG, p2[1] + dy * BIG);
+        }
+      };
       ctx.beginPath();
-      // merkez gökyüzündeyse yer ufuk çemberinin dışıdır (stereografik izdüşümde ters kutup sonsuzda)
-      if (centerAlt > 0) ctx.rect(-3e5, -3e5, 6e5, 6e5);
-      pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
-      ctx.closePath();
-      ctx.fillStyle = "rgba(12, 20, 16, 0.86)";
+      if (c && c[2] < 2e5) {
+        const inside = Math.hypot(g[0] - c[0], g[1] - c[1]) < c[2];
+        if (!inside) ctx.rect(-BIG, -BIG, 2 * BIG, 2 * BIG);           // yer çemberin dışı (gökyüzüne bakılıyor)
+        ctx.arc(c[0], c[1], c[2], 0, 2 * Math.PI);
+      } else {
+        // ufka tam yatay bakılıyor: ufuk bir doğru, yer onun g tarafındaki yarım düzlem
+        let dx = p3[0] - p1[0], dy = p3[1] - p1[1];
+        const n = Math.hypot(dx, dy) || 1;
+        dx /= n; dy /= n;
+        let nx = -dy, ny = dx;
+        if ((g[0] - p2[0]) * nx + (g[1] - p2[1]) * ny < 0) { nx = -nx; ny = -ny; }
+        ctx.moveTo(p2[0] - dx * BIG, p2[1] - dy * BIG);
+        ctx.lineTo(p2[0] + dx * BIG, p2[1] + dy * BIG);
+        ctx.lineTo(p2[0] + dx * BIG + nx * BIG, p2[1] + dy * BIG + ny * BIG);
+        ctx.lineTo(p2[0] - dx * BIG + nx * BIG, p2[1] - dy * BIG + ny * BIG);
+        ctx.closePath();
+      }
+      ctx.fillStyle = "rgb(11, 17, 14)";
       ctx.fill("evenodd");
       // ufuk çizgisi: yumuşak bir parıltı + ince çizgi
-      ctx.beginPath();
-      pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
-      ctx.closePath();
+      horizonPath();
       ctx.strokeStyle = "rgba(255, 190, 110, 0.18)";
       ctx.lineWidth = 7;
       ctx.stroke();
@@ -197,10 +299,10 @@
 
     let lastKey = "", dirty = true;
     function frame() {
+      if (state.horizon) { syncNav(); keepUpright(); }
       const [ra, dec] = aladin.getRaDec();
       const fov = aladin.getFov()[0];
       const w = el.clientWidth, h = el.clientHeight;
-      if (state.horizon) keepUpright(ra, dec);
       const rot = aladin.getRotation();
       const key = `${ra.toFixed(5)},${dec.toFixed(5)},${fov.toFixed(4)},${rot.toFixed(3)},${w}x${h}`;
       if (key !== lastKey || dirty) {
@@ -215,9 +317,8 @@
         }
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, w, h);
-        const centerAlt = altaz(ra, dec).alt;
         if (state.lines) drawNames(w, h, fov);
-        if (state.horizon) { drawGround(w, h, centerAlt); drawCardinals(w, h); }
+        if (state.horizon) { drawGround(w, h); drawCardinals(w, h); }
         state.onChange(api.view());
       }
       requestAnimationFrame(frame);
@@ -234,7 +335,9 @@
       altaz, toRaDec, dirName,
       setHorizon(on) {
         state.horizon = !!on;
+        setInertia(!state.horizon);   // yerden bakışta kaydırma eylemsizliği Aladin'in ekvator sürüklemesini sürdürürdü
         if (!on) aladin.setRotation(0);
+        else { syncNav(); keepUpright(); }
         dirty = true;
       },
       setLines(on) {
@@ -249,19 +352,25 @@
       },
       /** Ufukta (yükseklik, yön) noktasına bak. */
       look(alt, az, fov) {
-        const e = toRaDec(alt, az);
-        aladin.gotoRaDec(e.ra, e.dec);
         if (fov) aladin.setFoV(fov);
+        nav.alt = alt;
+        nav.az = az;
+        if (state.horizon) applyNav();
+        else { const e = toRaDec(alt, az); aladin.gotoRaDec(e.ra, e.dec); }
         dirty = true;
       },
       /** Bakılan yön ve görüş alanı, durum satırı için. */
       view() {
         const [ra, dec] = aladin.getRaDec();
         const h = altaz(ra, dec);
-        return { ra, dec, alt: h.alt, az: h.az, dir: dirName(h.az), fov: aladin.getFov()[0] };
+        const az = state.horizon && nav.az != null && h.alt >= 89.5 ? nav.az : h.az;   // başucunda son yön
+        return { ra, dec, alt: h.alt, az, dir: dirName(az), fov: aladin.getFov()[0] };
       },
       redraw() { dirty = true; },
+      /** Testler için: yerden bakış sürüklemesi etkin mi. */
+      get altAzDrag() { return altAzDrag; },
     };
+    if (state.horizon) { setInertia(false); syncNav(); }
     requestAnimationFrame(frame);
     return api;
   }

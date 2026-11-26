@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Build web/data/constellations.json (constellation stick figures and label positions) from
+Build web/data/constellations.json (constellation stick figures, label positions and names) from
 d3-celestial's data/constellations.lines.json and data/constellations.json.
 
     npm pack d3-celestial@0.7.35 && tar xzf d3-celestial-0.7.35.tgz
@@ -71,6 +71,13 @@ def main(src, dst):
             continue
         seen.add(key)
         labels.append([abbr, ra360(lon), round(lat, 2), int(p.get("rank", 3))])
+    # Latin names and genitives, for search ("Ursa Major", "Alpha Centauri")
+    cnames = {}
+    for f in names["features"]:
+        p = f["properties"]
+        old = cnames.get(p["desig"], [p["name"]])[0]
+        # Serpens comes in two parts (Caput, Cauda): keep the common name
+        cnames[p["desig"]] = [old if old == p["name"] else old.split()[0], p["gen"]]
     out = {
         "meta": {
             "source": "d3-celestial 0.7.35 (BSD-3-Clause, Olaf Frohn): constellations.lines.json, constellations.json; "
@@ -78,9 +85,11 @@ def main(src, dst):
             "epoch": "J2000",
             "lines": "each entry is one polyline: [ra1, dec1, ra2, dec2, ...] in degrees",
             "labels": "[IAU abbreviation, ra, dec, rank]; rank 1 = most prominent",
+            "names": "{IAU abbreviation: [Latin name, genitive]}",
         },
         "lines": polylines,
         "labels": labels,
+        "names": cnames,
     }
     Path(dst).write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
     n = sum(len(p) // 2 for p in polylines)

@@ -32,8 +32,9 @@ Statik çalışırken Gaia DR3 verisi tarayıcıdan doğrudan CDS'ten gelir: CDS
 | Parça | Ne yapar | Veri |
 |---|---|---|
 | Gökyüzü | Aladin Lite v3, HiPS karolarını akıtır; tüm gökyüzü siteye gömülmez, yalnızca ekrandaki karolar indirilir. Tek görünüm: gökyüzüne yerden, içeriden bakılır (stereografik izdüşüm, planetaryumlardaki gibi). Geniş bakışta Mellinger'in tüm gökyüzü fotoğrafı, yakınlaştıkça (40° → 12°) DSS2 yavaşça üstüne biner | Mellinger, DSS2 |
-| Ufuk ve takımyıldızlar | Gözlemcinin yerine ve saatine göre yer, ufuk çizgisi, yönler (K, D, G, B); yukarısı hep başucu. Konum açılışta saat diliminden (İstanbul vb.), "Konumum" düğmesiyle tarayıcıdan alınır. Takımyıldız çizgileri ve Türkçe adları. Yıldız kartı yıldızın şu an ufkun kaç derece üstünde ve hangi yönde olduğunu yazar | `web/js/sky.js`, `web/data/constellations.json` |
-| Parlak yıldız modeli | 15.397 yıldız (Hipparcos V < 7) haritada tıklanabilir, aranabilir, çevrimdışı | `web/data/bright_stars.json` |
+| Ufuk ve takımyıldızlar | Gözlemcinin yerine ve saatine göre yer, ufuk çizgisi, yönler (K, D, G, B); yukarısı hep başucu. Konum açılışta saat diliminden (İstanbul vb.), "Konumum" düğmesiyle tarayıcıdan alınır. Takımyıldız çizgileri ve Türkçe adları. Yıldız kartı yıldızın şu an ufkun kaç derece üstünde ve hangi yönde olduğunu yazar. Sürükleyince bakış baş çevirir gibi yükseklik ve yönde döner, başucundan geçerken görüntü ters dönmez; ufkun altındaki yer opaktır | `web/js/sky.js`, `web/data/constellations.json` |
+| Parlak yıldız modeli | 15.504 yıldız haritada tıklanabilir, çevrimdışı: V 7'den parlak bütün Hipparcos yıldızları ve bilinen sönük yıldızlar (Proxima Centauri, Barnard Yıldızı, Wolf 359, TRAPPIST-1, Teegarden Yıldızı, UY Scuti …) | `web/data/bright_stars.json` |
+| Arama | Yıldız ve takımyıldız adları çevrimdışı aranır: özel ad, Türkçe ad (Kutup Yıldızı, Demirkazık, Avcı), Bayer adı Yunan harfiyle ya da okunuşuyla (α Cen, Alfa Erboğa, alf Ori), Flamsteed numarası, HIP, HD, Gliese, Gaia DR3 kimliği, koordinat. Sözcük başına 1–2 harflik yazım hatası kabul edilir ("proxima centuri", "betelguese"). Ufkun altındaki bir yıldız seçilince yer gizlenir ve bu kartta yazılır | `web/js/search.js` |
 | Kayıtlı tüm yıldızlar | 2,5°'nin altına yakınlaşınca görünen alandaki Gaia DR3 yıldızları (en parlak 3.000) akar; yakınlaştıkça daha sönükleri gelir. Böylece Gaia'nın 1,8 milyar yıldızının hepsine ulaşılır. Tıklanan yıldızın kartı, ölçülmüş tüm parametrelerinden (Teff, log g, [M/H], element oranları, FLAME kütle/yaş/ışınım gücü, dikine hız) otomatik oluşur | `web/js/data.js` (VizieR ya da `GET /api/gaia/field`, `GET /api/gaia/source/<id>`) |
 | Gaia yansıları | ESA arşivi kapalıysa (ör. DR4 hazırlığı) Heidelberg ARI yansısına otomatik geçilir; sıra `GAIA_TAP_MIRRORS` ile değişir | `server/app.py` |
 | Fotoğraf → yıldız | JPG/PNG gece fotoğrafı: Phobetor yıldızları tarayıcıda bulur, yıldız deseni parlak yıldız kataloğuyla eşleştirilir (kör astrometri), fotoğrafın üstüne yıldız adları, takımyıldız çizgileri ve adları çizilir. FITS WCS tarayıcıda çözülür (TAN/SIN, CD/PC/CROTA; astropy ile birebir doğrulandı), ardından parlak katalog + Gaia DR3 eşleştirme | `web/js/phobetor.js`, `web/js/solve.js`, `web/js/fits.js`, `web/models/phobetor_euclid.onnx` |
@@ -97,8 +98,11 @@ Tarayıcıda (WebAssembly, tek iş parçacığı, 800 piksel) Phobetor bir foto�
 ## Kataloğu yeniden üretmek
 
 ```bash
-npm pack d3-celestial@0.7.35 && tar xzf d3-celestial-0.7.35.tgz   # yıldız adları, takımyıldızlar
-python tools/build_bright_catalog.py --vmax 7.0 --names package/data/starnames.json
+npm pack d3-celestial@0.7.35 && tar xzf d3-celestial-0.7.35.tgz   # yıldız adları, takımyıldızlar, sınırlar
+python tools/build_bright_catalog.py --vmax 7.0 --d3 package/data
+# ESA arşivi kapalıyken (ör. DR4 hazırlığı): var olan dosyanın V < 7 satırları korunur, adlar yenilenir,
+# eksik adlı yıldızlar Hipparcos yeni indirgemesinden (Heidelberg ARI) eklenir
+python tools/build_bright_catalog.py --base web/data/bright_stars.json --d3 package/data
 python tools/build_constellations.py package/data web/data/constellations.json
 ```
 
@@ -108,7 +112,7 @@ Phobetor modelini yeniden çevirmek (PyTorch gerekmez; `pip install onnx onnxrun
 python tools/export_phobetor_onnx.py en_iyi.pt web/models/phobetor_euclid.onnx --check
 ```
 
-Kaynaklar: ESA Hipparcos Kataloğu (1997), Gaia DR3 `astrophysical_parameters` (Gaia Collaboration 2023), yıldız adları ve takımyıldızlar d3-celestial (BSD-3, O. Frohn; çizgiler IAU ve Sky & Telescope haritalarından).
+Kaynaklar: ESA Hipparcos Kataloğu (1997) ve yeni indirgemesi (van Leeuwen 2007, Heidelberg ARI üzerinden), Gaia DR3 `astrophysical_parameters` ve Hipparcos dışındaki birkaç ünlü yıldız için `gaia_source` (Gaia Collaboration 2023), yıldız adları, takımyıldızlar ve takımyıldız sınırları d3-celestial (BSD-3, O. Frohn; çizgiler IAU ve Sky & Telescope haritalarından, sınırlar Davenhall ve Leggett 1989).
 
 ## Bilinen sınırlar
 
@@ -118,5 +122,7 @@ Kaynaklar: ESA Hipparcos Kataloğu (1997), Gaia DR3 `astrophysical_parameters` (
 - Ayna görüntüsü (ön kamera) ve çok kırpılmış ya da bükülmüş fotoğraflar çözülemeyebilir. Gezegenler, Ay ve uçak/uydu izleri katalogda yok.
 - Sunucudaki Astrometry.net yolu bu ortamda test edilemedi (ağ erişimi yoktu); kod nova API belgelerine göre yazıldı.
 - CDS'nin Strasbourg sunucularına (VizieR, HiPS kataloğu) GitHub'ın test makinelerinden ulaşılamadı; site testleri VizieR'in Harvard CfA yansısıyla geçti. HiPS kataloğu yolu sahte (mock) bir CDS servisiyle denendi.
+- Arama yalnızca gömülü kataloğun 15.504 yıldızını ve 88 takımyıldızı bilir. Adı olmayan sönük bir yıldıza koordinatla (ör. `269.45 4.67`) gidilip yakınlaşılır; kartı Gaia DR3'ten gelir.
 - Çok parlak yıldızlar (V < 3) Gaia'yı doyurduğu için Gaia parametreleri çoğunda yok; kart bu durumda Hipparcos ve B−V'den hesaplanan değerleri gösterir ve bunu etiketler.
+- Gaia'nın RVS tayfından (GSP-Spec) gelen sıcaklık, yüzey çekimi, metal bolluğu ve element oranları iki durumda kullanılmaz: Gaia'nın soğuk K ve M yıldızlarına koyduğu ortak sabit değer (tam olarak 4250 K ve log g 1,5; KMgiantPar bayrağı, bu katalogda 314 yıldız, Barnard Yıldızı da içinde) ve 3500 K ve altı (model ızgarasının kenarı; kırmızı cücelerde log g 3,5–4, [M/H] çok düşük çıkıyor). Kart o zaman Gaia fotometrisine (GSP-Phot) ya da renge döner ve nedenini yazar (`Draugr.cleanSpec`).
 - Çözüm işleri sunucu belleğinde tutulur (prototip).

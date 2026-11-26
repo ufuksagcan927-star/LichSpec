@@ -54,6 +54,10 @@
   function fmtInt(x) {
     return x == null || !isFinite(x) ? "—" : Math.round(x).toLocaleString("tr-TR");
   }
+  /** Uzaklık: yakın yıldızlarda bir ondalık (Proxima 4,2 ışık yılı), uzaktakilerde tam sayı. */
+  function fmtDist(x) {
+    return x != null && x < 10 ? fmt(x, 1) : fmtInt(x);
+  }
 
   /** B-V → Teff (Ballesteros 2012, siyah cisim yaklaşımı). */
   function teffFromBV(bv) {
@@ -90,6 +94,26 @@
     return { cls, lum };
   }
 
+  /**
+   * Gaia DR3 GSP-Spec (RVS tayfı) atmosfer değerlerini güvenilmez oldukları iki durumda yok say; kart o zaman
+   * Gaia fotometrisine (GSP-Phot) ya da renge döner. İkisi de Gaia'nın kendi kalite bayraklarının tanımından
+   * (Recio-Blanco ve ark. 2023, A&A 674, A29, Tablo C.5 ve C.8):
+   *  - Tam olarak Teff = 4250 K ve log g = 1,5: KMgiantPar bayrağı (soğuk K/M devleri) konmuş yıldızların ortak
+   *    değeri, ölçüm değil. Bu katalogda 300'ü aşkın yıldızda aynı; Barnard Yıldızı gibi kırmızı cüceler de içinde.
+   *  - Teff ≤ 3500 K: model ızgarasının kenarı (extrapol bayrağı). Kırmızı cücelerde log g 3,5–4 ve [M/H] çok
+   *    düşük çıkıyor (gerçekte log g ≈ 5).
+   */
+  const SPEC_KEYS = ["teff_s", "logg_s", "mh_s", "fem", "alpha", "ca", "mg", "si", "ti"];
+  function cleanSpec(s) {
+    if (s.teff_s == null || s.teff_s === "") return s;
+    const teff = +s.teff_s, logg = s.logg_s == null || s.logg_s === "" ? null : +s.logg_s;
+    const why = teff === 4250 && logg === 1.5 ? "fixed" : teff <= 3500 ? "edge" : null;
+    if (!why) return s;
+    s._spec_skip = { why, teff, logg };
+    for (const k of SPEC_KEYS) delete s[k];
+    return s;
+  }
+
   /** Tüm türetilmiş büyüklükleri tek yerde hesapla. Kaynaklar `src` alanında. */
   function derive(s) {
     const d = { src: {} };
@@ -115,7 +139,7 @@
     if (s.teff_s) { d.teff = s.teff_s; d.src.teff = "Gaia DR3 RVS tayfı"; }
     else if (s.teff) { d.teff = s.teff; d.src.teff = "Gaia DR3 fotometri"; }
     else if (s.bv != null) { d.teff = teffFromBV(s.bv); d.teff_est = true; d.src.teff = "B−V renginden tahmin"; }
-    else if (s.bprp != null && s.bprp > 0.39 && s.bprp < 1.5) {
+    else if (s.bprp != null && s.bprp > 0.39 && s.bprp < 1.5 && !s.dusty) {   // dusty: rengi kendi tozundan
       const C = s.bprp;
       d.teff = 5040 / (0.4929 + 0.5092 * C - 0.0353 * C * C); d.teff_est = true;
       d.src.teff = "BP−RP renginden tahmin (toz ihmal)";
@@ -187,14 +211,14 @@
     }
     if (d.dist_ly) {
       const unc = d.dist_err_pct ? ` (ölçüm belirsizliği yüksek, ±%${fmtInt(d.dist_err_pct)})` : "";
-      p.push(`Yaklaşık ${fmtInt(d.dist_ly)} ışık yılı (${fmtInt(d.dist_pc)} parsek) uzakta${unc}. Yani şu an gördüğün ışık yıldızdan yaklaşık ${fmtInt(d.dist_ly)} yıl önce yola çıktı.`);
+      p.push(`Yaklaşık ${fmtDist(d.dist_ly)} ışık yılı (${fmtDist(d.dist_pc)} parsek) uzakta${unc}. Yani şu an gördüğün ışık yıldızdan yaklaşık ${fmtDist(d.dist_ly)} yıl önce yola çıktı.`);
     } else if (d.dist_uncertain) {
       p.push("Paralaks ölçümünün hata payı çok büyük olduğu için uzaklığı güvenilir biçimde bilinmiyor.");
     }
 
     if (d.cls && d.info) {
       let sTxt = `Tayf türü <b>${s.sp || d.info.name}</b>`;
-      sTxt += s.sp ? `: ${d.info.desc} bir ${d.info.name} yıldız` : ` (${d.cls_est ? "renginden tahmin" : ""})`;
+      sTxt += s.sp ? `: ${d.info.desc} bir ${d.info.name} yıldız` : ` (${d.cls_est ? (d.teff_est ? "renginden tahmin" : "sıcaklığından tahmin") : ""})`;
       if (d.lum) sTxt += d.lum.name.includes("log g") ? `; ölçülen yüzey çekimine (log g) göre ${d.lum.name.replace(" (log g'den)", "")}` : `, ışınım sınıfı ${d.lum.code} → ${d.lum.name}`;
       sTxt += ".";
       if (d.teff) sTxt += ` Yüzey sıcaklığı ${d.teff_est ? "yaklaşık " : ""}${fmtInt(d.teff)} K (${d.src.teff}).`;
@@ -202,7 +226,10 @@
     }
     if (d.lum_sun && d.absmag != null) {
       const L = d.lum_sun;
-      const Ltxt = L >= 10 ? `Güneş'in görsel ışığının yaklaşık ${fmtInt(L)} katı` : L >= 1 ? `Güneş'in görsel ışığının yaklaşık ${fmt(L, 1)} katı` : `Güneş'in görsel ışığının yalnızca ~%${fmt(L * 100, 0)}'i`;
+      // kırmızı cücelerde yüzde sıfıra yuvarlanmasın: iki anlamlı basamakla "0,000057 katı"
+      const Ltxt = L >= 10 ? `Güneş'in görsel ışığının yaklaşık ${fmtInt(L)} katı` : L >= 1 ? `Güneş'in görsel ışığının yaklaşık ${fmt(L, 1)} katı`
+        : L >= 0.01 ? `Güneş'in görsel ışığının yalnızca ~%${fmt(L * 100, 0)}'i`
+          : `Güneş'in görsel ışığının yalnızca ${fmt(L, Math.min(8, 1 - Math.floor(Math.log10(L))))} katı`;
       p.push(`Uzaklığı ve parlaklığından mutlak kadiri ≈ ${fmt(d.absmag, 2)} çıkıyor: ${Ltxt} kadar ışık yayıyor (yıldızlararası toz ihmal edildi).`);
     }
     if (s.rad) p.push(`Gaia DR3'e göre yarıçapı Güneş'in ≈ ${fmt(s.rad, 1)} katı.`);
@@ -228,11 +255,11 @@
       }
       p.push(m);
     }
-    if (s.var) p.push("Hipparcos bu yıldızın parlaklığında değişim (değişen yıldız işareti) kaydetmiş.");
+    if (s.var) p.push(`${s._origin === "gaia" ? "Gaia" : "Hipparcos"} bu yıldızın parlaklığında değişim (değişen yıldız işareti) kaydetmiş.`);
     return p;
   }
 
   function cap(x) { return x.charAt(0).toUpperCase() + x.slice(1); }
 
-  global.Draugr = { derive, narrate, title, fmt, fmtInt, LINES, CLASS_INFO, bvColor, teffFromBV, CON_TR };
+  global.Draugr = { derive, cleanSpec, narrate, title, fmt, fmtInt, fmtDist, LINES, CLASS_INFO, bvColor, teffFromBV, CON_TR };
 })(window);

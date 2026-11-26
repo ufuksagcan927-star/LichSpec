@@ -4,8 +4,9 @@
  *   node tools/site_check.js <site-url> [fits-file] [out-dir] [--aladin-local=<path to aladin.js>]
  *                            [--dump-shots=1] [--readme-shots=1]
  *
- * Loads the site, zooms into M67, waits for Gaia DR3 stars, clicks one, checks the
- * generated star card, uploads a FITS image and checks the plate solution. From inside
+ * Loads the site, drags the view up through the zenith, checks the ground is opaque, tries the
+ * search (typos, Turkish names, constellations), zooms into M67, waits for Gaia DR3 stars, clicks
+ * one, checks the generated star card, uploads a FITS image and checks the plate solution. From inside
  * the browser it also probes every external data service the static site depends on, so
  * a missing CORS header shows up here. Prints a report; exits 1 if a core step fails.
  */
@@ -101,6 +102,77 @@ async function dumpShot(page, name, { full = false } = {}) {
   if (!view.groundAlpha) failures.push("ground/horizon overlay not drawn");
   if (flags["dump-shots"]) await dumpShot(page, "home");
   if (flags["readme-shots"]) await dumpShot(page, "readme_sky", { full: true });
+
+  log("\n== looking up through the zenith with the horizon on");
+  // Aladin's own drag works in RA/Dec; crossing the zenith used to flip "up" by 180° on every frame.
+  const altAz = await page.evaluate(async () => {
+    lichspec.sky.look(70, 0, 60);
+    await new Promise((r) => setTimeout(r, 500));
+    return lichspec.sky.altAzDrag;
+  });
+  const box = await page.locator("#aladin").boundingBox();
+  const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+  await page.mouse.move(cx, cy - 150);
+  await page.mouse.down();
+  const alts = [];
+  for (let i = 1; i <= 30; i++) {                    // drag down = look up
+    await page.mouse.move(cx, cy - 150 + i * 12);
+    await page.waitForTimeout(30);
+    alts.push(await page.evaluate(() => lichspec.sky.view().alt));
+  }
+  await page.mouse.up();
+  const rest = [];
+  for (let i = 0; i < 10; i++) {
+    await page.waitForTimeout(60);
+    rest.push(await page.evaluate(() => [lichspec.sky.view().alt, lichspec.aladin.getRotation()]));
+  }
+  const flips = rest.slice(1).filter((r, i) => Math.abs(((r[1] - rest[i][1] + 540) % 360) - 180) > 5).length;
+  log(`alt-az drag ${altAz} · highest alt ${Math.max(...alts).toFixed(2)}° · at rest alt ${rest[9][0].toFixed(2)}° rotation ${rest[9][1].toFixed(1)}° · flips after release: ${flips}`);
+  if (!altAz) failures.push("alt-az drag is not installed");
+  if (Math.max(...alts) < 89 || Math.max(...alts) > 90.001) failures.push("dragging up did not stop at the zenith");
+  if (flips) failures.push("the view keeps flipping at the zenith");
+
+  const ground = await page.evaluate(async () => {
+    lichspec.sky.look(5, 180, 60);
+    await new Promise((r) => setTimeout(r, 600));
+    const cv = document.querySelector(".sky-overlay");
+    return [...cv.getContext("2d").getImageData(Math.floor(cv.width / 2), Math.floor(cv.height * 0.85), 1, 1).data];
+  });
+  log("ground pixel looking 5° up, 85% down the view:", JSON.stringify(ground));
+  if (ground[3] !== 255) failures.push("the ground is not opaque");
+
+  log("\n== search");
+  for (const [q, want] of [["proxima centuri", "Proxima Centauri"], ["alfa erboğa", "Rigil Kentaurus"],
+    ["kutup yıldızı", "Polaris"], ["betelguese", "Betelgeuse"], ["avcı", "Avcı"], ["wolf 359", "Wolf 359"]]) {
+    await page.fill("#search-input", "");
+    await page.type("#search-input", q, { delay: 10 });
+    await page.waitForTimeout(250);
+    const first = await page.evaluate(() => document.querySelector("#search-results li")?.firstChild?.textContent?.trim() || "");
+    log(`  ${JSON.stringify(q)} → ${first}`);
+    if (first !== want) failures.push(`search "${q}" gave "${first}", expected "${want}"`);
+  }
+  await page.fill("#search-input", "");
+  await page.type("#search-input", "barnard", { delay: 10 });
+  await page.waitForTimeout(250);
+  await page.press("#search-input", "Enter");
+  await page.waitForTimeout(1500);
+  const picked = await page.evaluate(() => document.querySelector(".star-head h2")?.innerText);
+  if (picked !== "Barnard's Star") failures.push(`Enter on "barnard" opened "${picked}"`);
+  // A red dwarf: Gaia's RVS placeholder (4250 K, log g 1.5) must not turn it into a K giant.
+  const chips = await page.evaluate(() => [...document.querySelectorAll(".chips .chip")].map((c) => c.textContent).join(" | "));
+  log("Barnard's Star card:", chips);
+  if (!/M tipi/.test(chips) || !/anakol/.test(chips)) failures.push(`Barnard's Star card says "${chips}", expected an M dwarf`);
+  // Gaia DR3 live data must come from the Hipparcos cross-match: Barnard's Star moved 4′ since 1991.
+  if (await page.$("#btn-gaia")) {
+    await page.click("#btn-gaia");
+    await page.waitForFunction(() => !/sorgulanıyor/.test(document.querySelector("#gaia-live").innerText), null, { timeout: 90000 }).catch(() => {});
+    const live = await page.evaluate(() => document.querySelector("#gaia-live").innerText.replace(/\s+/g, " "));
+    log("Barnard's Star, Gaia DR3 live:", live.slice(0, 300));
+    if (!/4472832130942575872/.test(live) && !/başarısız|ulaşılamadı|zaman aşımı/.test(live)) {
+      failures.push("Barnard's Star: Gaia DR3 live data is not the cross-matched source");
+    }
+  }
+  if (flags["dump-shots"]) await dumpShot(page, "barnard");
   await page.evaluate(() => { lichspec.aladin.gotoRaDec(83.82, -5.39); lichspec.aladin.setFoV(9); });
   await page.waitForTimeout(8000);
   log("zoomed into Orion (9°):", JSON.stringify(await page.evaluate(() => window.lichspec.imagery)));

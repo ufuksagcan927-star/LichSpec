@@ -112,6 +112,12 @@ select {
 .star-dot { width: 46px; height: 46px; border-radius: 50%; flex: none; box-shadow: 0 0 22px 4px var(--glow, #fff6); }
 .star-head h2 { margin: 0; font-size: 22px; line-height: 1.2; }
 .star-head .ids { color: var(--muted); font-size: 12px; }
+.star-head .aka { color: var(--text); opacity: .78; font-size: 13px; margin: 1px 0 2px; }
+.horizon-note { margin: 6px 0 0; }
+.pick-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 2px; }
+.pick-list li { display: flex; justify-content: space-between; gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer; }
+.pick-list li:hover { background: var(--bg-3); }
+.pick-list small { color: var(--muted); }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
 .chip { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--bg-3); border: 1px solid var(--line); color: var(--muted); }
 .chip.est { border-color: #ffb84d55; color: var(--warn); }

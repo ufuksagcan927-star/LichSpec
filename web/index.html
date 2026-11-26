@@ -11,8 +11,8 @@
   <header class="topbar">
     <a class="brand" href="./"><img src="assets/logo.svg" alt="" width="28" height="28"><span>LichSpec</span><small>Gökyüzü</small></a>
     <form id="search" class="search" autocomplete="off">
-      <input id="search-input" type="search" placeholder="Yıldız ara: Vega, α Ori, HIP 32349, 83.63 22.01" aria-label="Yıldız ara">
-      <ul id="search-results" class="search-results" hidden></ul>
+      <input id="search-input" type="search" placeholder="Ara: Proxima Centauri, Kutup Yıldızı, Alfa Erboğa, Avcı, HIP 32349" aria-label="Yıldız ya da takımyıldız ara" role="combobox" aria-controls="search-results" aria-autocomplete="list">
+      <ul id="search-results" class="search-results" role="listbox" hidden></ul>
     </form>
     <div class="top-actions">
       <label class="toggle"><input id="toggle-horizon" type="checkbox" checked> Ufuk</label>
@@ -48,7 +48,7 @@
           <p>Haritadaki bir yıldıza tıkla. LichSpec o yıldızı tanır, ölçülmüş verilerini getirir ve Draugr ne gördüğünü anlatır.</p>
           <p class="muted">Gökyüzünü bulunduğun yerden, şu an göründüğü gibi görüyorsun: aşağısı yer, ufukta yönler (K, D, G, B). Sürükleyerek etrafına bakabilir, fare tekerleğiyle ya da iki parmakla yakınlaşabilirsin.</p>
           <p class="muted">Gece çektiğin bir fotoğrafı <b>Fotoğraf yükle</b> ile bırakırsan Phobetor içindeki yıldızları bulur, hangi yıldızlar ve takımyıldızlar olduğunu fotoğrafın üstüne yazar.</p>
-          <p class="muted">Haritada <b id="star-count">…</b> parlak yıldız modellenmiş durumda (Hipparcos V&nbsp;&lt;&nbsp;7, Gaia DR3 parametreleriyle). Yakınlaştıkça Gaia DR3'ün kaydettiği 1,8 milyar yıldız alan alan yüklenir; her birine tıklayınca kartı ölçülmüş verilerinden otomatik oluşur.</p>
+          <p class="muted">Haritada <b id="star-count">…</b> yıldız modellenmiş durumda, Gaia DR3 parametreleriyle: Hipparcos'un V&nbsp;&lt;&nbsp;7 bütün yıldızları, adı olan sönükler (Proxima Centauri, Barnard Yıldızı…) ve Hipparcos'ta olmayan ünlüler (Wolf 359, TRAPPIST-1, UY Scuti…). Hepsi adıyla, Türkçe adıyla ya da “Alfa Erboğa” gibi Bayer adıyla aranabilir; yazım hatası sorun değil. Yakınlaştıkça Gaia DR3'ün kaydettiği 1,8 milyar yıldız alan alan yüklenir; her birine tıklayınca kartı ölçülmüş verilerinden otomatik oluşur.</p>
           <div class="quick">
             <button data-goto="Sirius">Sirius</button>
             <button data-goto="Betelgeuse">Betelgeuse</button>
@@ -101,6 +101,7 @@
     window.dispatchEvent(new Event("aladin-ready"));
   </script>
   <script src="js/draugr.js"></script>
+  <script src="js/search.js"></script>
   <script src="js/sky.js"></script>
   <script src="js/data.js"></script>
   <script src="js/fits.js"></script>
