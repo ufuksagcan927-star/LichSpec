@@ -2,6 +2,7 @@
  * LichSpec site smoke test (Playwright).
  *
  *   node tools/site_check.js <site-url> [fits-file] [out-dir] [--aladin-local=<path to aladin.js>]
+ *                            [--dump-shots=1] [--readme-shots=1]
  *
  * Loads the site, zooms into M67, waits for Gaia DR3 stars, clicks one, checks the
  * generated star card, uploads a FITS image and checks the plate solution. From inside
@@ -37,17 +38,18 @@ const log = (...a) => console.log(...a);
 
 /** Small JPEG of the page written into the log as base64 lines ("SHOT <name> <i>/<n> <data>"), so the
  *  live rendering can be looked at even where the uploaded artifact cannot be downloaded. */
-async function dumpShot(page, name) {
+async function dumpShot(page, name, { full = false } = {}) {
   const png = await page.screenshot();
-  const b64 = await page.evaluate(async (src) => {
+  const b64 = await page.evaluate(async ({ src, full }) => {
     const img = new Image();
     img.src = "data:image/png;base64," + src;
     await img.decode();
     const c = document.createElement("canvas");
-    c.width = Math.round(img.width / 2); c.height = Math.round(img.height / 2);
+    const k = full ? 1 : 0.5;
+    c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
     c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-    return c.toDataURL("image/jpeg", 0.62).split(",")[1];
-  }, png.toString("base64"));
+    return c.toDataURL("image/jpeg", full ? 0.84 : 0.62).split(",")[1];
+  }, { src: png.toString("base64"), full });
   const n = Math.ceil(b64.length / 4000);
   for (let i = 0; i < n; i++) log(`SHOT ${name} ${i + 1}/${n} ${b64.slice(i * 4000, (i + 1) * 4000)}`);
 }
@@ -98,6 +100,7 @@ async function dumpShot(page, name) {
   if (!/bakıyorsun/.test(view.status)) failures.push("sky status does not say where you are looking");
   if (!view.groundAlpha) failures.push("ground/horizon overlay not drawn");
   if (flags["dump-shots"]) await dumpShot(page, "home");
+  if (flags["readme-shots"]) await dumpShot(page, "readme_sky", { full: true });
   await page.evaluate(() => { lichspec.aladin.gotoRaDec(83.82, -5.39); lichspec.aladin.setFoV(9); });
   await page.waitForTimeout(8000);
   log("zoomed into Orion (9°):", JSON.stringify(await page.evaluate(() => window.lichspec.imagery)));
@@ -174,6 +177,7 @@ async function dumpShot(page, name) {
     log(card.facts);
     if (!card.title || !/Gaia/.test(card.title)) failures.push("Gaia star card did not open");
     await page.screenshot({ path: path.join(outDir, "2_gaia_card.png") });
+    if (flags["readme-shots"]) await dumpShot(page, "readme_gaia", { full: true });
   } else {
     failures.push("no clickable Gaia star found");
   }
@@ -192,6 +196,18 @@ async function dumpShot(page, name) {
     log("solve:", res.meta || res.status, "| list items:", res.items);
     if (!res.meta) failures.push("FITS solve failed: " + res.status);
     await page.screenshot({ path: path.join(outDir, "3_fits.png") });
+  }
+
+  if (flags["readme-shots"]) {
+    // README: a bright star's card (narration + measured values) over the whole of Orion, seen from the ground
+    await page.evaluate(() => { const d = document.querySelector("#upload-dialog"); if (d.open) d.close(); });
+    await page.evaluate(() => {
+      lichspec.aladin.gotoRaDec(85.5, 1.0);
+      lichspec.aladin.setFoV(32);
+      lichspec.showStar(lichspec.STARS.find((s) => s.name === "Betelgeuse"), { goto: false });
+    });
+    await page.waitForTimeout(6000);
+    await dumpShot(page, "readme_card", { full: true });
   }
 
   log("\n== console errors (" + consoleErrors.length + ")");

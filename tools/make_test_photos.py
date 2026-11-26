@@ -6,7 +6,8 @@ Test photos for the in-browser photo solver (tools/photo_check.js).
 
 1. Synthetic phone-like night photos rendered from web/data/bright_stars.json: gnomonic lens with
    optional barrel distortion, Gaussian + Moffat star profiles, sky glow with a gradient, photon and read
-   noise, in-camera blur, sRGB tone curve, JPEG compression, a dark foreground and trailed stars in some.
+   noise, in-camera blur, sRGB tone curve, JPEG compression, a dark foreground and trailed stars in some,
+   plus a stacked camera photo in which every star brighter than about V 5 is clipped at 255.
    The true pointing is known, so the solution can be checked exactly.
 2. With --real: real sky images. Mellinger all-sky photographic mosaic cut out by the CDS hips2fits
    service in gnomonic projection (wide fields like a phone or camera), and a few freely licensed camera
@@ -17,6 +18,7 @@ Writes <out-dir>/cases.json: [{file, kind, expect: {ra, dec, fov?, within_deg}, 
 import io
 import json
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -40,6 +42,10 @@ SYNTH = {
     "cas_trailed": dict(ra=15, dec=60, roll=170, hfov=67, size=[1024, 768], fwhm=2.0, ell=1.2, ell_pa=0.6, m0=11.7, sky=120, white=3500, q=80, nr=0.6, grad=1.0),
     # Scorpius, heavy noise reduction and JPEG, foreground
     "sco_main": dict(ra=250, dec=-30, roll=-60, hfov=67, size=[1024, 768], fwhm=2.6, m0=11.2, sky=150, white=4000, read=4, q=70, nr=1.0, grad=1.2, fg=0.1),
+    # camera on a tripod, many exposures stacked: every star brighter than about V 5 is clipped at 255,
+    # so the brightest stars can only be told apart by the size of their clipped core and halo
+    "orion_deep_stack": dict(ra=84, dec=-1, roll=-10, hfov=40, size=[1600, 1067], fwhm=4.5, m0=14.0, sky=10, white=150, read=2, q=90, nr=0.3, grad=0.4,
+                             kind="synthetic camera stack"),
 }
 
 # Mellinger cut-outs: (name, ra, dec, fov_deg along the long side, rotation, width, height)
@@ -122,10 +128,15 @@ def render(c, out, cat, seed):
     pil.save(out, quality=c.get("q", 85))
 
 
-def fetch(url, timeout=90):
+def fetch(url, timeout=90, report=False):
     req = urllib.request.Request(url, headers={"User-Agent": "LichSpec-test/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.read()
+    except urllib.error.HTTPError as e:  # say what the service answered
+        if report:
+            print("  ", url, "->", e.code, e.read()[:400].decode("utf-8", "replace").replace("\n", " "))
+        raise
 
 
 def main():
@@ -135,7 +146,7 @@ def main():
     cat = load_catalog()
     for n, (name, c) in enumerate(SYNTH.items()):
         render(c, out / f"{name}.jpg", cat, seed=n + 1)
-        cases.append(dict(file=f"{name}.jpg", kind="synthetic phone-like", must_solve=True,
+        cases.append(dict(file=f"{name}.jpg", kind=c.get("kind", "synthetic phone-like"), must_solve=True,
                           expect=dict(ra=c["ra"], dec=c["dec"], fov=c["hfov"], within_deg=0.5)))
         print("made", name)
     if "--real" in sys.argv:
@@ -143,7 +154,7 @@ def main():
             q = urllib.parse.urlencode(dict(hips="CDS/P/Mellinger/color", width=w, height=h, fov=fov, projection="TAN",
                                             coordsys="icrs", ra=ra, dec=dec, rotation_angle=rot, format="jpg"))
             try:
-                data = fetch("https://alasky.cds.unistra.fr/hips-image-services/hips2fits?" + q)
+                data = fetch("https://alasky.cds.unistra.fr/hips-image-services/hips2fits?" + q, report=True)
                 Image.open(io.BytesIO(data)).verify()
                 (out / f"{name}.jpg").write_bytes(data)
                 cases.append(dict(file=f"{name}.jpg", kind="real sky (Mellinger via hips2fits)", must_solve=True,

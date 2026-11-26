@@ -1,7 +1,7 @@
 /*
  * LichSpec photo check (Playwright).
  *
- *   node tools/photo_check.js <site-url> <photo-dir> [--dump-shots=1] [--force-wasm=1]
+ *   node tools/photo_check.js <site-url> <photo-dir> [--dump-shots=1] [--readme-shots=1] [--force-wasm=1]
  *                             [--aladin-local=<aladin.js>] [--ort-local=<onnxruntime-web dist dir>]
  *
  * Uploads every photo listed in <photo-dir>/cases.json (tools/make_test_photos.py) to the site the way a
@@ -25,19 +25,48 @@ function sepDeg(ra1, de1, ra2, de2) {
   return Math.acos(Math.min(1, Math.max(-1, c))) / D2R;
 }
 
-async function dumpShot(page, name) {
+async function dumpShot(page, name, { full = false } = {}) {
   const png = await page.screenshot();
-  const b64 = await page.evaluate(async (src) => {
+  const b64 = await page.evaluate(async ({ src, full }) => {
     const img = new Image();
     img.src = "data:image/png;base64," + src;
     await img.decode();
     const c = document.createElement("canvas");
-    c.width = Math.round(img.width / 2); c.height = Math.round(img.height / 2);
+    const k = full ? 1 : 0.5;
+    c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
     c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-    return c.toDataURL("image/jpeg", 0.62).split(",")[1];
-  }, png.toString("base64"));
+    return c.toDataURL("image/jpeg", full ? 0.84 : 0.62).split(",")[1];
+  }, { src: png.toString("base64"), full });
   const n = Math.ceil(b64.length / 4000);
   for (let i = 0; i < n; i++) console.log(`SHOT ${name} ${i + 1}/${n} ${b64.slice(i * 4000, (i + 1) * 4000)}`);
+}
+
+/** Any JSON value written into the log as base64 lines ("DATA <name> <i>/<n> <data>"). */
+function dumpData(name, value) {
+  const b64 = Buffer.from(JSON.stringify(value)).toString("base64");
+  const n = Math.ceil(b64.length / 4000);
+  for (let i = 0; i < n; i++) console.log(`DATA ${name} ${i + 1}/${n} ${b64.slice(i * 4000, (i + 1) * 4000)}`);
+}
+
+/** Solved photo: the brightest catalogue stars inside the frame, and whether Phobetor found them. */
+function brightStarsInFrame(page) {
+  return page.evaluate(() => {
+    const s = window.lichspec.lastSolve;
+    if (!s || s.status !== "solved" || !s.cam) return null;
+    const c = s.cam, W = s.width, H = s.height;
+    const cam = new LichSolve.Camera(c.R, c.f, c.cx, c.cy, c.k1, c.k2, c.rpix);
+    const matched = new Set(s.stars.map((x) => x.hip));
+    const out = [];
+    for (const st of window.lichspec.STARS) {
+      if (st.v == null || st.v > 3.5) continue;
+      const p = cam.world2pix(st.ra, st.dec);
+      if (!p || p[0] < 0.02 * W || p[1] < 0.02 * H || p[0] > 0.98 * W || p[1] > 0.98 * H) continue;
+      let best = Infinity, bd = null;
+      for (const d of s.detections) { const r = Math.hypot(d.x - p[0], d.y - p[1]); if (r < best) { best = r; bd = d; } }
+      out.push({ name: st.name || st.desig || "HIP " + st.hip, v: st.v, found: matched.has(st.hip), near: best, sat: !!(bd && bd.sat) });
+    }
+    return out.sort((a, b) => a.v - b.v);
+  });
 }
 
 (async () => {
@@ -62,7 +91,9 @@ async function dumpShot(page, name) {
   await page.waitForFunction(() => window.lichspec && window.lichspec.STARS.length > 0, null, { timeout: 90000 });
 
   const failures = [];
-  let shots = 0;
+  let shots = 0, readmeDone = false;
+  // README picture: the first real camera photo that solves; the last case as a fallback
+  const readmeFallback = cases.length ? cases[cases.length - 1].file : null;
   console.log(`== photo check: ${cases.length} photos`);
   for (const c of cases) {
     const file = path.join(dir, c.file);
@@ -104,7 +135,32 @@ async function dumpShot(page, name) {
     console.log(`- ${ok ? "OK  " : c.must_solve ? "FAIL" : "miss"} ${c.file} [${c.kind}] ${secs} s | ${ph} | ${where}`);
     if (r.names && r.names.length) console.log(`      stars: ${r.names.join(", ")} | constellations: ${r.constellations.join(", ")}`);
     if (c.source) console.log(`      source: ${c.source}`);
+    if (r.status === "solved") {
+      const b = await brightStarsInFrame(page);
+      if (b && b.length) {
+        const missed = b.filter((x) => !x.found);
+        console.log(`      bright stars (V <= 3.5) in the frame: ${b.length}, found and named ${b.length - missed.length}`
+          + (missed.length ? `; missed: ${missed.map((x) => `${x.name} V ${x.v} (nearest detection ${x.near.toFixed(1)} px${x.sat ? ", saturated" : ""})`).join(", ")}` : ""));
+      }
+    } else if (!r.error) {
+      // not solved: what the solver saw, so the case can be replayed offline (node, web/js/solve.js)
+      const info = await page.evaluate(() => {
+        const s = window.lichspec.lastSolve;
+        return {
+          file: s.file, W: s.width, H: s.height, exif: s.exif, solver: s.solver, phobetor: s.phobetor,
+          det: (s.detections || []).map((d) => [+d.x.toFixed(2), +d.y.toFixed(2), +d.flux.toFixed(4), d.sat ? d.satArea || 1 : 0, +d.score.toFixed(3)]),
+        };
+      });
+      console.log(`      size ${info.W}x${info.H}, exif ${JSON.stringify(info.exif || {})}, solver ${JSON.stringify(info.solver)}`);
+      console.log(`      brightest detections [x, y, flux, saturated px, score]: ${JSON.stringify(info.det.slice(0, 12))}`);
+      dumpData("dets_" + c.file.replace(/\.\w+$/, ""), info);
+      if (flags["dump-shots"] === "1") await dumpShot(page, "fail_" + c.file.replace(/\.\w+$/, ""));
+    }
     if (!ok && c.must_solve) failures.push(c.file);
+    if (flags["readme-shots"] === "1" && ok && !readmeDone && (c.kind.startsWith("real camera") || c.file === readmeFallback)) {
+      await dumpShot(page, "readme_photo", { full: true });
+      readmeDone = true;
+    }
     if (flags["dump-shots"] === "1" && ok && shots < 3 && (shots === 0 || !c.kind.startsWith("synthetic"))) {
       await dumpShot(page, "photo_" + c.file.replace(/\.\w+$/, ""));
       shots++;

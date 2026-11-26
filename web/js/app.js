@@ -765,14 +765,36 @@
         prev = p;
       }
     }
-    const labels = [];
+    const labels = [], shown = new Set();
     for (const [abbr, ra, dec] of CONS ? CONS.labels : []) {
       const p = cam.world2pix(ra, dec);
-      if (p && p[0] > W * 0.03 && p[1] > H * 0.04 && p[0] < W * 0.97 && p[1] < H * 0.97) labels.push([D.CON_TR[abbr] || abbr, p[0], p[1]]);
+      if (p && p[0] > W * 0.03 && p[1] > H * 0.04 && p[0] < W * 0.97 && p[1] < H * 0.97) {
+        labels.push([D.CON_TR[abbr] || abbr, p[0], p[1]]);
+        shown.add(abbr);
+      }
     }
+    // Dar açılı fotoğrafta takımyıldızın ad konumu çoğu zaman çerçevenin dışında kalır: tanınan
+    // yıldızların en az %15'i bir takımyıldızdansa adı o yıldızların ortasına, yıldız adlarından uzağa yazılır.
+    const byCon = new Map();
+    for (const s of j.stars) if (s.con) byCon.set(s.con, (byCon.get(s.con) || []).concat([s]));
+    const named = j.stars.slice(0, 15);
+    const fsz = Math.max(12, W / 62);
+    [...byCon.entries()].filter(([abbr, list]) => !shown.has(abbr) && list.length >= Math.max(4, 0.15 * j.stars.length))
+      .sort((a, b) => b[1].length - a[1].length).slice(0, 3).forEach(([abbr, list]) => {
+        const med = (v) => v.slice().sort((a, b) => a - b)[v.length >> 1];
+        const mx = med(list.map((s) => s.x)), my = med(list.map((s) => s.y));
+        for (const dy of [0, -0.07, 0.07, -0.14, 0.14, -0.21, 0.21]) {
+          const y = Math.min(H * 0.95, Math.max(H * 0.05, my + dy * H));
+          if (named.every((s) => Math.abs(s.y - y) > 1.6 * fsz || Math.abs(s.x - mx) > 5 * fsz)) {
+            labels.push([D.CON_TR[abbr] || abbr, mx, y]);
+            break;
+          }
+        }
+      });
     Object.assign(j, {
       center: { ra: ra0, dec: dec0 }, radius_deg: radius, pixscale_arcsec: (3600 * 180) / Math.PI / cam.f,
       corners, cons: { segs, labels },
+      cam: { R: c.R, f: c.f, cx: c.cx, cy: c.cy, k1: c.k1, k2: c.k2, rpix: cam.rpix },
       fov: { h: sol.hfov, v: sol.vfov }, solver: { ...j.solver, rms: sol.rms, logp: sol.logp, matched: sol.pairs.length },
     });
     return j;

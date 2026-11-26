@@ -41,10 +41,10 @@ jobs:
           (cd web && python -m http.server 8080 > /dev/null 2>&1 &)
           sleep 2
       - name: Site check (sky, Gaia layer, star card, FITS upload)
-        run: node tools/site_check.js http://localhost:8080/ site-check-out/pleiades.fits site-check-out --dump-shots=1
+        run: node tools/site_check.js http://localhost:8080/ site-check-out/pleiades.fits site-check-out --dump-shots=1 --readme-shots=1
       - name: Photo check (Phobetor in the browser + star pattern matching on phone-like and real photos)
         if: success() || failure()
-        run: node tools/photo_check.js http://localhost:8080/ site-check-out/photos --dump-shots=1
+        run: node tools/photo_check.js http://localhost:8080/ site-check-out/photos --dump-shots=1 --readme-shots=1
       - uses: actions/upload-artifact@v4
         if: always()
         with:

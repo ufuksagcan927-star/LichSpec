@@ -295,8 +295,71 @@
       }
       det.push({ x: xx + ox[o], y: y + oy[o], score: h, flux, sat: !!s });
     }
-    det.sort((a, b) => b.flux - a.flux);
-    return { det, backend, ms: Math.round(performance.now() - t0), threshold: THRESHOLD, noise: back.noise };
+    const out = measureSaturated(det, L, sat, back.bg, W, H);
+    out.sort((a, b) => b.flux - a.flux);
+    return { det: out, backend, ms: Math.round(performance.now() - t0), threshold: THRESHOLD, noise: back.noise };
+  }
+
+  /**
+   * Doymuş (kırpılmış) yıldızlar. Parlak yıldızların çekirdeği 255'te kesilir: 7x7 kutudaki ışık hepsinde
+   * aynı çıkar ve "en parlak yıldızlar" sıralaması bozulur (uzun pozlamalı ya da üst üste yığılmış
+   * fotoğraflarda yüzlerce yıldız doyar). Doymuş bölge bulunur (4-komşu, en çok 60 piksel öteye);
+   * ışık, bölgenin büyüklüğüyle genişleyen dairesel bir açıklıkta ölçülür (doymuş alan + hale);
+   * konum bölgenin ağırlık merkezi olur. Aynı doymuş bölgeye düşen ikinci tespit (halka, ışın) atılır.
+   */
+  function measureSaturated(det, L, sat, bg, W, H) {
+    const owner = new Int32Array(W * H);
+    const keep = new Uint8Array(det.length).fill(1);
+    const order = [];
+    for (let i = 0; i < det.length; i++) if (det[i].sat) order.push(i);
+    order.sort((a, b) => det[b].score - det[a].score);
+    const stack = [];
+    let id = 0;
+    for (const i of order) {
+      const d = det[i];
+      const x0 = Math.round(d.x), y0 = Math.round(d.y);
+      let seed = -1, best = Infinity;
+      for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+        const x = x0 + dx, y = y0 + dy;
+        if (x < 0 || y < 0 || x >= W || y >= H) continue;
+        const q = y * W + x, r2 = dx * dx + dy * dy;
+        if (sat[q] && r2 < best) { best = r2; seed = q; }
+      }
+      if (seed < 0) continue;
+      if (owner[seed]) { keep[i] = 0; continue; }
+      id++;
+      const sx0 = seed % W, sy0 = (seed / W) | 0;
+      let n = 0, sx = 0, sy = 0;
+      stack.length = 0;
+      stack.push(seed);
+      owner[seed] = id;
+      while (stack.length) {
+        const q = stack.pop(), x = q % W, y = (q / W) | 0;
+        n++; sx += x; sy += y;
+        for (let k = 0; k < 4; k++) {
+          const xn = x + (k === 0 ? 1 : k === 1 ? -1 : 0), yn = y + (k === 2 ? 1 : k === 3 ? -1 : 0);
+          if (xn < 0 || yn < 0 || xn >= W || yn >= H || Math.abs(xn - sx0) > 60 || Math.abs(yn - sy0) > 60) continue;
+          const qn = yn * W + xn;
+          if (!sat[qn] || owner[qn]) continue;
+          owner[qn] = id;
+          stack.push(qn);
+        }
+      }
+      if (n >= 3) { d.x = sx / n; d.y = sy / n; }
+      const R = Math.min(40, Math.ceil(3 + 2.5 * Math.sqrt(n / Math.PI)));
+      const cx = Math.round(d.x), cy = Math.round(d.y);
+      let flux = 0;
+      for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+        if (dx * dx + dy * dy > R * R) continue;
+        const x = cx + dx, y = cy + dy;
+        if (x < 0 || y < 0 || x >= W || y >= H) continue;
+        const q = y * W + x;
+        flux += L[q] - bg[q];
+      }
+      d.flux = Math.max(d.flux, flux);
+      d.satArea = n;
+    }
+    return det.filter((_, i) => keep[i]);
   }
 
   // ------------------------------------------------------------------ EXIF (odak, tarih)
@@ -337,11 +400,25 @@
     if (ifd0[0x010f]) out.make = ifd0[0x010f];
     if (ifd0[0x0110]) out.model = ifd0[0x0110];
     if (ifd0[0x8769]) {
-      const ex = readIfd(ifd0[0x8769], [0xa405, 0x920a, 0x9003, 0x829a]);
-      if (ex[0xa405]) out.focal35 = ex[0xa405];
+      const ex = readIfd(ifd0[0x8769], [0xa405, 0x920a, 0x9003, 0x829a, 0xa002, 0xa003, 0xa20e, 0xa20f, 0xa210]);
+      if (ex[0xa405]) { out.focal35 = ex[0xa405]; out.focal35From = "exif"; }
       if (ex[0x920a]) out.focal = ex[0x920a];
       if (ex[0x9003]) out.date = ex[0x9003];
       if (ex[0x829a]) out.exposure = ex[0x829a];
+      // Fotoğraf makineleri (ör. Canon) 35 mm karşılığını yazmaz; algılayıcı boyu odak düzlemi
+      // çözünürlüğünden bulunur: genişlik (mm) = piksel sayısı / (piksel / birim) × birim.
+      if (!out.focal35 && out.focal && ex[0xa002] && ex[0xa20e]) {
+        const unit = { 2: 25.4, 3: 10, 4: 1, 5: 0.001 }[ex[0xa210] || 2];
+        const w = (ex[0xa002] / ex[0xa20e]) * unit;
+        const h = ex[0xa003] && ex[0xa20f] ? (ex[0xa003] / ex[0xa20f]) * unit : (w * 2) / 3;
+        if (unit && w > 3 && w < 60 && h > 2 && h < 60) {
+          out.focal35 = Math.round((out.focal * 43.27) / Math.hypot(w, h));
+          out.focal35From = "sensor";
+          out.sensorMm = [+w.toFixed(1), +h.toFixed(1)];
+        }
+      }
+      // yalnızca gerçek odak varsa: fotoğraf makinesi (APS-C, 1,5x) varsayımıyla bir başlangıç tahmini
+      if (!out.focal35 && out.focal >= 10) { out.focal35 = Math.round(out.focal * 1.5); out.focal35From = "guess"; }
     }
     return out;
   }

@@ -166,15 +166,27 @@
 
   /** k en parlak yıldızın, maxSep'ten (radyan) yakın bütün çiftleri; açıya göre kovalara ayrılmış. */
   Catalog.prototype.pairs = function (k, maxSep) {
+    // komşu odak değerleri aynı listeyi kullansın: k ~%25'lik, açı 5°'lik basamaklara yuvarlanır
+    k = Math.min(this.n, Math.round(60 * Math.pow(1.25, Math.ceil(Math.log(k / 60) / Math.log(1.25) - 1e-9))));
+    maxSep = Math.min(Math.PI, Math.ceil((maxSep * R2D) / 5 - 1e-9) * 5 * D2R);
     const key = k + "|" + Math.round(maxSep * R2D);
     if (this.pairCache.has(key)) return this.pairCache.get(key);
     const cosMax = Math.cos(maxSep);
     const A = [], B = [], S = [];
-    for (let i = 0; i < k; i++) {
-      const ui = this.u[i];
-      for (let j = i + 1; j < k; j++) {
-        const d = dot(ui, this.u[j]);
-        if (d >= cosMax) { A.push(i); B.push(j); S.push(sep(ui, this.u[j])); }
+    if (k > 400 && maxSep < 40 * D2R) {
+      // dar alan, derin katalog: her yıldızın yalnızca yakın komşuları (ızgarayla)
+      const mk = this.mag[k - 1];
+      for (let i = 0; i < k; i++) {
+        const ui = this.u[i];
+        this.cone(ui, maxSep, mk, (j) => { if (j > i && j < k) { A.push(i); B.push(j); S.push(sep(ui, this.u[j])); } });
+      }
+    } else {
+      for (let i = 0; i < k; i++) {
+        const ui = this.u[i];
+        for (let j = i + 1; j < k; j++) {
+          const d = dot(ui, this.u[j]);
+          if (d >= cosMax) { A.push(i); B.push(j); S.push(sep(ui, this.u[j])); }
+        }
       }
     }
     const bw = 0.05 * D2R, nbin = Math.ceil(maxSep / bw) + 1;
@@ -188,7 +200,10 @@
       a[p] = A[t]; b[p] = B[t]; s[p] = S[t];
     }
     const out = { a, b, s, start, bw, nbin, k };
-    if (this.pairCache.size > 12) this.pairCache.clear();
+    // bellek sınırı (telefonlar): önbellekte toplam en çok ~3 milyon çift
+    let total = S.length;
+    for (const v of this.pairCache.values()) total += v.s.length;
+    if (total > 3e6 || this.pairCache.size > 12) this.pairCache.clear();
     this.pairCache.set(key, out);
     return out;
   };
@@ -426,6 +441,34 @@
       info.set(key, o);
       return o;
     };
+    // Dördüncü yıldız: üçgenin dışındaki parlak yıldızlardan biri için katalogda p, q ve c'ye doğru
+    // uzaklıklarda bir yıldız olmalı. Yalnızca uzaklık tablolarıyla yapılır (kamera yönü hesaplanmadan),
+    // rastlantısal üçgen eşleşmelerinin çoğunu ucuzca eler.
+    const fourthFits = (A, B, C, p, q, c, fq) => {
+      for (let D = 0; D < N; D++) {
+        if (D === A || D === B || D === C) continue;
+        const e = pairInfo(Math.min(A, D), Math.max(A, D));
+        const L = e.map.get(p);
+        if (!L) continue;
+        const dAD = e.d + e.slope * (fq - f), tAD = 0.008 * dAD + 3 / fq + 0.02 * D2R;
+        const dBD = pixAngle(pts[B], pts[D], fq), dCD = pixAngle(pts[C], pts[D], fq);
+        const tBD = 0.008 * dBD + 3 / fq + 0.02 * D2R, tCD = 0.008 * dCD + 3 / fq + 0.02 * D2R;
+        const bLo = Math.cos(dBD + tBD), bHi = Math.cos(Math.max(0, dBD - tBD));
+        const cLo = Math.cos(dCD + tCD), cHi = Math.cos(Math.max(0, dCD - tCD));
+        const uq = cat.u[q], uc = cat.u[c];
+        for (let z = 0; z < L.length; z += 2) {
+          const x = L[z];
+          if (x === q || x === c || Math.abs(P.s[L[z + 1]] - dAD) > tAD) continue;
+          const ux = cat.u[x];
+          const dq = uq[0] * ux[0] + uq[1] * ux[1] + uq[2] * ux[2];
+          if (dq < bLo || dq > bHi) continue;
+          const dc = uc[0] * ux[0] + uc[1] * ux[1] + uc[2] * ux[2];
+          if (dc < cLo || dc > cHi) continue;
+          return true;
+        }
+      }
+      return false;
+    };
     for (let kk = 2; kk < N; kk++) for (let jj = 1; jj < kk; jj++) for (let ii = 0; ii < jj; ii++) {
       if (budget.left() <= 0) return null;
       const dij = sep(U[ii], U[jj]), dik = sep(U[ii], U[kk]), djk = sep(U[jj], U[kk]);
@@ -446,15 +489,19 @@
         const fpq = f + (sAB - eAB.d) / eAB.slope;
         const dAC = eAC.d + eAC.slope * (fpq - f), dBC = eBC.d + eBC.slope * (fpq - f);
         const tAC = 0.008 * dAC + 3 / fpq + 0.02 * D2R, tBC = 0.008 * dBC + 3 / fpq + 0.02 * D2R;
+        const bcLo = Math.cos(dBC + tBC), bcHi = Math.cos(Math.max(0, dBC - tBC));
         for (let o = 0; o < 2; o++) {
           const p = o ? P.b[t] : P.a[t], q = o ? P.a[t] : P.b[t];
           const L1 = eAC.map.get(p);
           if (!L1) continue;
+          const uq = cat.u[q];
           for (let z = 0; z < L1.length; z += 2) {
             const c = L1[z];
             if (c === q || Math.abs(P.s[L1[z + 1]] - dAC) > tAC) continue;
-            if (Math.abs(sep(cat.u[q], cat.u[c]) - dBC) > tBC) continue;
+            const uc = cat.u[c], dqc = uq[0] * uc[0] + uq[1] * uc[1] + uq[2] * uc[2];
+            if (dqc < bcLo || dqc > bcHi) continue;
             if (Math.sign(det3(cat.u[p], cat.u[q], cat.u[c])) !== chi) continue;   // ayna görüntüsü
+            if (!fourthFits(A, B, C, p, q, c, fpq)) continue;
             if (stats) stats.tested++;
             const res = checkTriangle(ctx, [A, B, C], [p, q, c], pts, fpq, mlim);
             if (res) return Object.assign(res, { f0: f, mlim });
@@ -529,7 +576,7 @@
    */
   function solve(catalog, detections, W, H, opts = {}) {
     const t0 = Date.now();
-    const limit = opts.timeLimitMs || 25000;
+    const limit = opts.timeLimitMs || 45000;
     const det = detections.slice().sort((a, b) => b.flux - a.flux);
     if (det.length < 5) return { ok: false, reason: "few_stars", nDet: det.length };
     const N = Math.min(opts.nTriangle || 12, det.length);
