@@ -94,6 +94,26 @@
     return { cls, lum };
   }
 
+  /**
+   * Gaia DR3 GSP-Spec (RVS tayfı) atmosfer değerlerini güvenilmez oldukları iki durumda yok say; kart o zaman
+   * Gaia fotometrisine (GSP-Phot) ya da renge döner. İkisi de Gaia'nın kendi kalite bayraklarının tanımından
+   * (Recio-Blanco ve ark. 2023, A&A 674, A29, Tablo C.5 ve C.8):
+   *  - Tam olarak Teff = 4250 K ve log g = 1,5: KMgiantPar bayrağı (soğuk K/M devleri) konmuş yıldızların ortak
+   *    değeri, ölçüm değil. Bu katalogda 300'ü aşkın yıldızda aynı; Barnard Yıldızı gibi kırmızı cüceler de içinde.
+   *  - Teff ≤ 3500 K: model ızgarasının kenarı (extrapol bayrağı). Kırmızı cücelerde log g 3,5–4 ve [M/H] çok
+   *    düşük çıkıyor (gerçekte log g ≈ 5).
+   */
+  const SPEC_KEYS = ["teff_s", "logg_s", "mh_s", "fem", "alpha", "ca", "mg", "si", "ti"];
+  function cleanSpec(s) {
+    if (s.teff_s == null || s.teff_s === "") return s;
+    const teff = +s.teff_s, logg = s.logg_s == null || s.logg_s === "" ? null : +s.logg_s;
+    const why = teff === 4250 && logg === 1.5 ? "fixed" : teff <= 3500 ? "edge" : null;
+    if (!why) return s;
+    s._spec_skip = { why, teff, logg };
+    for (const k of SPEC_KEYS) delete s[k];
+    return s;
+  }
+
   /** Tüm türetilmiş büyüklükleri tek yerde hesapla. Kaynaklar `src` alanında. */
   function derive(s) {
     const d = { src: {} };
@@ -241,5 +261,5 @@
 
   function cap(x) { return x.charAt(0).toUpperCase() + x.slice(1); }
 
-  global.Draugr = { derive, narrate, title, fmt, fmtInt, fmtDist, LINES, CLASS_INFO, bvColor, teffFromBV, CON_TR };
+  global.Draugr = { derive, cleanSpec, narrate, title, fmt, fmtInt, fmtDist, LINES, CLASS_INFO, bvColor, teffFromBV, CON_TR };
 })(window);

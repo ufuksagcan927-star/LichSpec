@@ -31,7 +31,7 @@
     });
     // Hipparcos satırları + Hipparcos'ta olmayan ünlü yıldızlar (Wolf 359, TRAPPIST-1…: doğrudan Gaia DR3)
     STARS = objects(j.meta.cols, j.stars, {}).concat(objects(j.meta.extra_cols || [], j.extra || [], { _origin: "gaia" }));
-    STARS.forEach((s) => { if (s.hip) byHip.set(s.hip, s); });
+    STARS.forEach((s) => { D.cleanSpec(s); if (s.hip) byHip.set(s.hip, s); });
     // Adı yazılan parlak yıldızlardan biri daha parlak bir komşusunun dibindeyse (α Cen A/B) adı yazılmaz
     const labelled = STARS.filter((s) => s.name && s.v < 2.6).sort((a, b) => a.v - b.v);
     labelled.forEach((s, i) => { if (labelled.slice(0, i).some((b) => angSep(s.ra, s.dec, b.ra, b.dec) < 0.05)) s._nolabel = true; });
@@ -405,6 +405,14 @@
     return `${sg}${d}° ${String(m).padStart(2, "0")}′ ${String(s).padStart(2, "0")}″`;
   }
 
+  /** Gaia RVS tayfı değerleri neden kullanılmadı (Draugr.cleanSpec). */
+  function specSkipNote({ why, teff, logg }) {
+    const val = `${D.fmtInt(teff)} K${logg != null ? ` ve log g ${D.fmt(logg, 2)}` : ""}`;
+    return why === "fixed"
+      ? `Gaia RVS tayfının verdiği ${val} kullanılmadı: bu, Gaia'nın soğuk K ve M yıldızlarına koyduğu ortak sabit değer, ölçüm değil.`
+      : `Gaia RVS tayfının verdiği ${val} kullanılmadı: 3.500 K ve altında Gaia'nın tayf modeli güvenilir aralığının dışında kalıyor (kırmızı cücelerde yüzey çekimini ve metal bolluğunu çoğu zaman çok düşük buluyor).`;
+  }
+
   // -------------------------------------------------------------- yıldız kartı
   function showStar(s, { goto = true, pending = false, keepScroll = false } = {}) {
     select(s);
@@ -486,6 +494,7 @@
       <div class="section">
         <h3>Ölçülen veriler</h3>
         <dl class="facts">${facts.join("")}</dl>
+        ${s._spec_skip ? `<p class="note">${specSkipNote(s._spec_skip)}</p>` : ""}
       </div>
 
       <div class="section">
@@ -590,7 +599,7 @@
     if (g.spectraltype_esphs) s.sp = String(g.spectraltype_esphs).replace(/[^A-Za-z0-9 +\-./]/g, "").trim();
     if (g.phot_variable_flag === "VARIABLE") s.var = "1";
     // Gaia G kadiri V ile aynı değil; V alanı boş bırakılır, kart G'yi ayrıca gösterir.
-    return s;
+    return D.cleanSpec(s);
   }
 
   // -------------------------------------------------------------- arama

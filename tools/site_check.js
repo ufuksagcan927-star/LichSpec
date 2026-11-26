@@ -158,6 +158,10 @@ async function dumpShot(page, name, { full = false } = {}) {
   await page.waitForTimeout(1500);
   const picked = await page.evaluate(() => document.querySelector(".star-head h2")?.innerText);
   if (picked !== "Barnard's Star") failures.push(`Enter on "barnard" opened "${picked}"`);
+  // A red dwarf: Gaia's RVS placeholder (4250 K, log g 1.5) must not turn it into a K giant.
+  const chips = await page.evaluate(() => [...document.querySelectorAll(".chips .chip")].map((c) => c.textContent).join(" | "));
+  log("Barnard's Star card:", chips);
+  if (!/M tipi/.test(chips) || !/anakol/.test(chips)) failures.push(`Barnard's Star card says "${chips}", expected an M dwarf`);
   // Gaia DR3 live data must come from the Hipparcos cross-match: Barnard's Star moved 4′ since 1991.
   if (await page.$("#btn-gaia")) {
     await page.click("#btn-gaia");
