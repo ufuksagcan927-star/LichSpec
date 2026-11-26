@@ -178,13 +178,16 @@ def main():
             # licence and author as Commons states them (printed with the result)
             try:
                 if meta is None:
-                    q = urllib.parse.urlencode(dict(action="query", format="json", titles="File:" + fname, prop="imageinfo",
-                                                    iiprop="extmetadata", iiextmetadatafilter="LicenseShortName|Artist"))
-                    pg = next(iter(json.loads(fetch("https://commons.wikimedia.org/w/api.php?" + q))["query"]["pages"].values()))
+                    q = urllib.parse.urlencode(dict(action="query", format="json", titles="File:" + fname, redirects=1,
+                                                    prop="imageinfo", iiprop="extmetadata",
+                                                    iiextmetadatafilter="LicenseShortName|Artist"))
+                    pg = next(iter(json.loads(fetch("https://commons.wikimedia.org/w/api.php?" + q, report=True))
+                                   ["query"]["pages"].values()))
                     meta = pg["imageinfo"][0]["extmetadata"]
                 artist = re.sub(r"<[^>]+>", "", meta.get("Artist", {}).get("value", "")).strip()
                 return f"{meta.get('LicenseShortName', {}).get('value', '?')}, {artist or 'author not stated'}"
-            except Exception:
+            except Exception as e:
+                print("   licence lookup failed for", fname, "->", repr(e)[:300])
                 return "unknown"
 
         def add_commons(fname, thumb_url, kind, ra, dec, within, meta=None):
