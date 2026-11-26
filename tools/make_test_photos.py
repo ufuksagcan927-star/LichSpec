@@ -2,7 +2,7 @@
 """
 Test photos for the in-browser photo solver (tools/photo_check.js).
 
-    python tools/make_test_photos.py <out-dir> [--real]
+    python tools/make_test_photos.py <out-dir> [--real [--search]]
 
 1. Synthetic phone-like night photos rendered from web/data/bright_stars.json: gnomonic lens with
    optional barrel distortion, Gaussian + Moffat star profiles, sky glow with a gradient, photon and read
@@ -10,14 +10,17 @@ Test photos for the in-browser photo solver (tools/photo_check.js).
    plus a stacked camera photo in which every star brighter than about V 5 is clipped at 255.
    The true pointing is known, so the solution can be checked exactly.
 2. With --real: freely licensed real night-sky photos from Wikimedia Commons (downloaded only for the
-   test, never committed): four fixed photos of Orion, plus the first few photo results of a Commons
-   search for each of five constellations (the search results change over time; every source is printed).
-   Only the target is known for these, so the check is that the solution lands near the constellation.
+   test, never committed; licence and author are printed with each result). Only the target is known for
+   these, so the check is that the solution lands near the constellation. The list includes photos the
+   solver does not handle yet (foreground lights brighter than the stars, a side-by-side composite).
+   With --search as well: the first few photo results of a Commons search for five constellations (the
+   results change over time; used to find new test photos).
 
 Writes <out-dir>/cases.json: [{file, kind, expect: {ra, dec, fov?, within_deg}, must_solve}].
 """
 import io
 import json
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -49,18 +52,27 @@ SYNTH = {
                              kind="synthetic camera stack"),
 }
 
-# Freely licensed camera photos of Orion on Wikimedia Commons (resized by Commons to 1600 px).
+# Freely licensed night-sky photos on Wikimedia Commons (resized by Commons to 1600 px):
+# (file name, centre of the photographed constellation (ra, dec), allowed distance in degrees)
+ORION = (84.05, -1.2, 30)
 COMMONS = [
-    "Orion_Constellation1.jpg",
-    "Orion_Constellation_with_40mm_lens.jpg",
-    "Constellation_Orion_from_Grand_Canyon.jpg",
-    "2012-02-21_21-01-50-orion-78f-12d-11o.jpg",
+    ("Orion_Constellation1.jpg", *ORION),
+    ("Orion_Constellation_with_40mm_lens.jpg", *ORION),
+    ("Constellation_Orion_from_Grand_Canyon.jpg", *ORION),
+    ("2012-02-21_21-01-50-orion-78f-12d-11o.jpg", *ORION),
+    ("Orion_constellation_in_night_sky.jpg", 84.0, 0.0, 35),
+    ("Constellation_Orion_over_a_house_at_night_in_Tuntorp.jpg", 84.0, 0.0, 35),
+    ("Thin_clouds_and_the_Big_Dipper_over_Brastad_1.jpg", 184.0, 56.0, 35),
+    ("2012-08-11_23-56-28-Cassiopeia-2c-27f-28d.jpg", 15.0, 60.0, 35),
+    ("Scorpius_Constellation_in_Bali's_Sky.jpg", 255.0, -30.0, 35),
+    ("Scorpius_in_the_sky_(scorpius-wf-cc-1986).jpg", 255.0, -30.0, 35),
+    ("Milky_Way_Swan_-_Astrophotography.jpg", 305.0, 40.0, 40),
 ]
-
-
 NOTES = {
     "2012-02-21_21-01-50-orion-78f-12d-11o.jpg":
         "not a single photo: the same field twice side by side, with constellation lines drawn on the right copy",
+    "Constellation_Orion_over_a_house_at_night_in_Tuntorp.jpg": "house lights at the bottom are brighter than the stars",
+    "Thin_clouds_and_the_Big_Dipper_over_Brastad_1.jpg": "thin clouds; street and house lights brighter than the stars",
 }
 
 # Commons search: (search text, centre of the constellation (ra, dec), allowed distance in degrees)
@@ -162,7 +174,20 @@ def main():
     if "--real" in sys.argv:
         seen = set()
 
-        def add_commons(fname, thumb_url, kind, ra, dec, within):
+        def licence(fname, meta=None):
+            # licence and author as Commons states them (printed with the result)
+            try:
+                if meta is None:
+                    q = urllib.parse.urlencode(dict(action="query", format="json", titles="File:" + fname, prop="imageinfo",
+                                                    iiprop="extmetadata", iiextmetadatafilter="LicenseShortName|Artist"))
+                    pg = next(iter(json.loads(fetch("https://commons.wikimedia.org/w/api.php?" + q))["query"]["pages"].values()))
+                    meta = pg["imageinfo"][0]["extmetadata"]
+                artist = re.sub(r"<[^>]+>", "", meta.get("Artist", {}).get("value", "")).strip()
+                return f"{meta.get('LicenseShortName', {}).get('value', '?')}, {artist or 'author not stated'}"
+            except Exception:
+                return "unknown"
+
+        def add_commons(fname, thumb_url, kind, ra, dec, within, meta=None):
             if fname.replace(" ", "_") in seen:
                 return
             seen.add(fname.replace(" ", "_"))
@@ -176,18 +201,18 @@ def main():
             (out / local).write_bytes(data)
             cases.append(dict(file=local, kind=kind, must_solve=False,
                               source="https://commons.wikimedia.org/wiki/File:" + fname.replace(" ", "_"),
-                              note=NOTES.get(fname.replace(" ", "_"), ""),
+                              note=NOTES.get(fname.replace(" ", "_"), ""), license=licence(fname, meta),
                               expect=dict(ra=ra, dec=dec, within_deg=within)))
             print("fetched", fname, len(data), "bytes")
 
-        for fname in COMMONS:
-            # only the target is known: Orion's centre (Alnilam), within 30 degrees
-            add_commons(fname, "https://commons.wikimedia.org/wiki/Special:FilePath/" + fname + "?width=1600",
-                        "real camera photo (Wikimedia Commons)", 84.05, -1.2, 30)
-        for text, ra, dec, within in SEARCH:
+        for fname, ra, dec, within in COMMONS:
+            add_commons(fname, "https://commons.wikimedia.org/wiki/Special:FilePath/" + urllib.parse.quote(fname) + "?width=1600",
+                        "real photo (Wikimedia Commons)", ra, dec, within)
+        for text, ra, dec, within in (SEARCH if "--search" in sys.argv else []):
             q = urllib.parse.urlencode(dict(action="query", format="json", generator="search", gsrsearch=text,
                                             gsrnamespace=6, gsrlimit=20, prop="imageinfo",
-                                            iiprop="url|size|mime", iiurlwidth=1600))
+                                            iiprop="url|size|mime|extmetadata", iiurlwidth=1600,
+                                            iiextmetadatafilter="LicenseShortName|Artist"))
             try:
                 pages = json.loads(fetch("https://commons.wikimedia.org/w/api.php?" + q))["query"]["pages"]
             except Exception as e:
@@ -202,7 +227,8 @@ def main():
                 if any(w in fname.lower() for w in NOT_A_PHOTO) or not ii.get("thumburl"):
                     continue
                 before = len(cases)
-                add_commons(fname, ii["thumburl"], f"real photo, Commons search '{text}'", ra, dec, within)
+                add_commons(fname, ii["thumburl"], f"real photo, Commons search '{text}'", ra, dec, within,
+                            ii.get("extmetadata"))
                 got += len(cases) > before
                 if got >= 3:
                     break

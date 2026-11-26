@@ -25,7 +25,7 @@ Site statik dosyalardan ibarettir (`web/`), sunucu olmadan da tam çalışır:
 
 Statik çalışırken Gaia DR3 verisi tarayıcıdan doğrudan CDS'ten gelir: CDS'nin Gaia DR3 HiPS kataloğuna ulaşılabiliyorsa gökyüzü katmanı oradan (karolar, her ölçekte hızlı), ulaşılamıyorsa VizieR'in bir yansısından (CDS, Harvard CfA ya da IDIA; açılışta hangisi önce cevap verirse) görünen alanın en parlak 3.000 yıldızı sorgulanır. VizieR'de bu sorgu dairedeki bütün yıldızları taradığından yavaştır, bu yüzden o yolda alan galaktik enleme göre sınırlanır (Samanyolu düzleminde daha çok yakınlaşmak gerekir). FITS ve JPG/PNG dosyaları tarayıcıda çözülür (aşağıda). `python server/app.py` ile açıldığında site bunu algılar ve Gaia sorgularını kendi sunucusu üzerinden yapar (ESA → Heidelberg yansısı geçişiyle); tarayıcıdaki eşleştirme bir fotoğrafı çözemezse Astrometry.net API'sini dener.
 
-`.github/workflows/site-check.yml` her değişiklikte önce veri servislerini yoklar (`tools/probe_services.py`: her VizieR yansısı için DNS, CORS, süre; Gaia sütun adları; alan sorgusunun süresi ve doğru sıralanıp sıralanmadığı), sonra siteyi gerçek internette statik olarak açıp gökyüzü, Gaia katmanı, yıldız kartı ve FITS çözümünü dener. Ardından `tools/photo_check.js` yapay telefon fotoğraflarını ve gerçek gökyüzü görüntülerini siteye bir ziyaretçi gibi yükleyip Phobetor'un yıldız bulmasını ve fotoğrafın gökyüzünde doğru yere oturmasını denetler.
+`.github/workflows/site-check.yml` her değişiklikte önce veri servislerini yoklar (`tools/probe_services.py`: her VizieR yansısı için DNS, CORS, süre; Gaia sütun adları; alan sorgusunun süresi ve doğru sıralanıp sıralanmadığı), sonra siteyi gerçek internette statik olarak açıp gökyüzü, Gaia katmanı, yıldız kartı ve FITS çözümünü dener. Ardından `tools/photo_check.js` yapay test fotoğraflarını ve Wikimedia Commons'taki serbest lisanslı gerçek gece fotoğraflarını (yalnızca test sırasında indirilir, depoya girmez) siteye bir ziyaretçi gibi yükleyip Phobetor'un yıldız bulmasını ve fotoğrafın gökyüzünde doğru yere oturmasını denetler.
 
 ## Nasıl çalışıyor
 
@@ -44,15 +44,15 @@ Statik çalışırken Gaia DR3 verisi tarayıcıdan doğrudan CDS'ten gelir: CDS
 
 Gece fotoğrafı (telefon ya da fotoğraf makinesi, JPG/PNG) yüklenince her şey ziyaretçinin tarayıcısında olur: fotoğraf hiçbir sunucuya gitmez, ücretli ya da anahtarlı bir servis yoktur.
 
-1. **Phobetor yıldızları bulur.** Euclid Q1 görüntüleriyle eğitilen model (`en_iyi.pt`, 4,7 milyon parametre, Euclid test bölümünde kesinlik 0,90, duyarlılık 0,76) `tools/export_phobetor_onnx.py` ile ONNX'e çevrildi: `web/models/phobetor_euclid.onnx`, 9,4 MB, ağırlıklar float16, hesap float32. Çeviri, numpy ile ayrıca yazılmış bir ileri geçişle karşılaştırıldı (fark < 3·10⁻⁷). Tarayıcıda [onnxruntime-web](https://onnxruntime.ai/) 1.31.1 ile, varsa WebGPU'da, yoksa WebAssembly'de çalışır (`web/js/phobetor.js`). Fotoğraf uzun kenarı 1280 (WebGPU) ya da 800 piksel (WebAssembly) olacak şekilde küçültülür, sRGB'den doğrusal parlaklığa çevrilir, gökyüzü arka planı ve gürültüsü 32 piksellik hücrelerde ölçülür ve model eğitimdeki normalizasyonla (asinh(S/N / 3)) beslenir; Euclid'in dört bandına aynı parlaklık verilir.
-2. **Yıldız deseni gökyüzüyle eşleştirilir** (`web/js/solve.js`, sayfa donmasın diye ayrı bir iş parçacığında). Odak uzaklığı bilinmediği için olası görüş açıları (6°–130°) sırayla denenir: EXIF'te 35 mm karşılığı odak varsa önce o, yoksa telefonların ana kamerası (~67°). En parlak yıldızların açısal uzaklıklarından üçgenler kurulur, katalogda aynı üçgen aranır (ayna görüntüleri elenir), aday kamera yönü diğer parlak yıldızlarla denetlenir, sonra bütün görüntüyle doğrulanır: bu kadar eşleşmenin rastlantıyla çıkma olasılığı 10⁻⁹'dan büyükse çözüm reddedilir. Kabul edilen çözümde kamera yönü, odak, mercek bozulması ve optik merkez bütün eşleşen yıldızlara uydurulur.
-3. Fotoğrafın üstüne tanınan yıldızlar (en parlak 15'i adıyla), takımyıldız çizgileri ve Türkçe adları çizilir. Phobetor'un bulup katalogla eşleşmeyen noktaları (sönük yıldız, gezegen, uçak, lamba) küçük sarı halkayla gösterilir. Bir yıldıza tıklayınca gökyüzünde fotoğrafın kapladığı alan ve yıldızın kartı açılır.
+1. **Phobetor yıldızları bulur.** Euclid Q1 görüntüleriyle eğitilen model (`en_iyi.pt`, 4,7 milyon parametre, Euclid test bölümünde kesinlik 0,90, duyarlılık 0,76) `tools/export_phobetor_onnx.py` ile ONNX'e çevrildi: `web/models/phobetor_euclid.onnx`, 9,4 MB, ağırlıklar float16, hesap float32. Çeviri, numpy ile ayrıca yazılmış bir ileri geçişle karşılaştırıldı (fark < 3·10⁻⁷). Tarayıcıda [onnxruntime-web](https://onnxruntime.ai/) 1.31.1 ile, varsa WebGPU'da, yoksa WebAssembly'de çalışır (`web/js/phobetor.js`). Fotoğraf uzun kenarı 1280 (WebGPU) ya da 800 piksel (WebAssembly) olacak şekilde küçültülür, sRGB'den doğrusal parlaklığa çevrilir, gökyüzü arka planı ve gürültüsü 32 piksellik hücrelerde ölçülür ve model eğitimdeki normalizasyonla (asinh(S/N / 3)) beslenir; Euclid'in dört bandına aynı parlaklık verilir. Çekirdeği 255'te kırpılmış (doymuş) çok parlak yıldızlar ayrıca ölçülür: Phobetor Euclid görüntülerinde böyle yıldız görmediği için bunları ya hiç bulmuyor ya da halesini birkaç parça sanıyor. Konum olarak kırpılmış çekirdeğin ağırlık merkezi, parlaklık olarak geniş bir açıklıktaki toplam ışık alınır, aynı yıldızın hale parçaları silinir.
+2. **Yıldız deseni gökyüzüyle eşleştirilir** (`web/js/solve.js`, sayfa donmasın diye ayrı bir iş parçacığında). Odak uzaklığı bilinmediği için olası görüş açıları (6°–130°) sırayla denenir: önce EXIF'ten çıkan açı (35 mm karşılığı odak; bunu yazmayan fotoğraf makinelerinde odak uzaklığı ve sensör boyutu), EXIF yoksa telefonların ana kamerası (~67°). En parlak yıldızların açısal uzaklıklarından üçgenler kurulur, katalogda aynı üçgen aranır (ayna görüntüleri elenir) ve dördüncü bir yıldızın da tutması gerekir. Aday kamera yönü diğer parlak yıldızlarla denetlenir, sonra bütün görüntüyle doğrulanır: bu kadar eşleşmenin rastlantıyla çıkma olasılığı 10⁻⁹'dan büyükse çözüm reddedilir. Uçak ve uydu izleri, düz bir çizgi üstünde dizilen noktalar ve sıkışık ışık kümeleri üçgenlere alınmaz. Kabul edilen çözümde kamera yönü, odak, mercek bozulması ve optik merkez bütün eşleşen yıldızlara adım adım uydurulur. 45 saniyede çözüm bulunamazsa arama durur.
+3. Fotoğrafın üstüne tanınan yıldızlar (en parlak 15'i adıyla), takımyıldız çizgileri ve Türkçe adları çizilir. Phobetor'un bulamadığı çok parlak yıldızlar (V ≤ 1,5; örneğin doymuş ya da bulutun, ağacın arkasında kalmış) çözümden hesaplanan yerlerinde kesikli halkayla gösterilir ve listede "yeri hesaplandı" diye yazar. Phobetor'un bulup katalogla eşleşmeyen noktaları (sönük yıldız, gezegen, uçak, lamba) küçük sarı halkayla gösterilir. Bir yıldıza tıklayınca gökyüzünde fotoğrafın kapladığı alan ve yıldızın kartı açılır.
 
 ### Ölçülen sonuçlar
 
-Gerçekçi yapay telefon fotoğraflarıyla ölçüldü (`tools/make_test_photos.py`): parlak yıldız kataloğundan çizilirler; mercek, yıldız profili, gökyüzü parlaması ve eğimi, foton ve okuma gürültüsü, telefonun gürültü azaltması, sRGB tonu, JPEG sıkıştırması, bazılarında ön planda karanlık yer ve iz bırakan yıldızlar vardır. Doğru cevap bilindiği için sonuç kesin ölçülebiliyor.
+Gerçekçi yapay telefon fotoğraflarıyla ölçüldü (`tools/make_test_photos.py`): parlak yıldız kataloğundan çizilirler; mercek, yıldız profili, gökyüzü parlaması ve eğimi, foton ve okuma gürültüsü, telefonun gürültü azaltması, sRGB tonu, JPEG sıkıştırması, bazılarında ön planda karanlık yer ve iz bırakan yıldızlar vardır. Yedincisi birleştirilmiş (stack) bir fotoğraf makinesi pozudur: V 5'ten parlak bütün yıldızların çekirdeği 255'te kırpılmıştır. Doğru cevap bilindiği için sonuç kesin ölçülebiliyor.
 
-Phobetor (1024 piksellik görüntüler, eşik 0,10; "görünür yıldız" = S/N > 7):
+Phobetor, ilk altı fotoğrafta (1024 piksellik görüntüler, eşik 0,10; "görünür yıldız" = S/N > 7):
 
 | Fotoğraf | Bulunan görünür yıldız | Tespitlerden yıldız olan |
 |---|---|---|
@@ -68,9 +68,31 @@ Phobetor (1024 piksellik görüntüler, eşik 0,10; "görünür yıldız" = S/N 
 - Karşılaştırma için klasik bir bulucu (Gauss süzgeci + 5σ tepe) daha çok sönük yıldız buluyor ama zor fotoğraflarda (şehir ışığı, yoğun gürültü azaltma) tespitlerinin yalnızca %12–18'i yıldız. Phobetor bu fotoğraflarda çok daha güvenilir.
 - Telefon fotoğraflarıyla ince ayar (fine-tune) yapılırsa sönük yıldızlarda da iyileşmesi beklenir.
 
-Eşleştirme: 6 fotoğrafın 6'sı çözüldü. Merkez hatası en fazla 0,03°, görüş açısı hatası %0,3'ün altında; eşleşen yıldızların %94–100'ü doğru yıldız. Süre: ana kamera açısında 0,1 saniyenin altında, tele ve ultra geniş açıda 0,5–1,5 saniye. Rastgele noktalardan oluşan 6 sahte "fotoğrafta" yanlış çözüm çıkmadı.
+Eşleştirme: 7 yapay fotoğrafın 7'si çözüldü. Merkez hatası en fazla 0,03°, görüş açısı hatası %0,3'ün altında; eşleşen yıldızların %95–100'ü doğru yıldız. Süre: ana kamera açısında 0,1 saniyenin altında, tele ve ultra geniş açıda 0,5–1,5 saniye. Rastgele noktalardan oluşan 6 sahte "fotoğrafta" yanlış çözüm çıkmadı.
 
-Tarayıcıda (WebAssembly, tek iş parçacığı, 800 piksel) Phobetor bir fotoğrafı 6–7 saniyede işliyor; WebGPU'lu cihazlarda çok daha hızlı. İlk kullanımda model (9,4 MB) ve onnxruntime-web (sıkıştırılmış yaklaşık 7 MB) bir kez iner.
+Tarayıcıda (WebAssembly, tek iş parçacığı, 800 piksel) Phobetor bir fotoğrafı 5–8 saniyede işliyor; WebGPU'lu cihazlarda çok daha hızlı. İlk kullanımda model (9,4 MB) ve onnxruntime-web (sıkıştırılmış yaklaşık 7 MB) bir kez iner.
+
+### Gerçek fotoğraflar
+
+`site-check` her çalışmada Wikimedia Commons'tan 11 serbest lisanslı gece fotoğrafı indirip siteye yükler (yalnızca test için; depoya girmez, lisansı ve yazarı sonuçla birlikte yazdırılır). Bunlarda yalnızca hangi takımyıldızın çekildiği bilinir; denetlenen, çözümün o takımyıldıza düşmesi ve kadrajdaki parlak yıldızların bulunup adlandırılmasıdır.
+
+| Fotoğraf | Görüş alanı | Kadrajdaki V ≤ 3,5 yıldızlardan bulunan |
+|---|---|---|
+| Avcı, dar alan | 16° × 24° | 11 / 11 |
+| Avcı, 40 mm objektif | 44° × 31° | 18 / 18 |
+| Avcı, Büyük Kanyon | 36° × 25° | 12 / 13 |
+| Avcı, dikey, geniş açı | 58° × 73° | 29 / 34 |
+| Kraliçe (Cassiopeia) | 25° × 26° | 6 / 6 |
+| Akrep, Bali | 68° × 53° | 35 / 46 |
+| Akrep | 26° × 22° | 14 / 15 |
+| Kuğu ve Samanyolu | 25° × 17° | 4 / 4 |
+| Avcı, aynı alan yan yana iki kez, birinin üstünde çizilmiş çizgiler | – | çözülemedi |
+| Avcı, evin üstünde (ön planda ev ışıkları) | – | çözülemedi |
+| Büyükayı, ince bulut, ön planda sokak ve ev ışıkları | – | çözülemedi |
+
+- 11 fotoğrafın 8'i çözüldü; bunlarda kadrajdaki V 3,5'ten parlak 147 yıldızın 129'u bulundu ve adlandırıldı. Kaçanların çoğu ufka çok yakın ya da ön planın arkasında.
+- Çözülemeyen üçünden biri tek bir fotoğraf değil (aynı alanın yan yana iki kopyası). Diğer ikisinde ev ve sokak ışıkları yıldızlardan parlak: eşleştirme en parlak noktalardan başladığı için ışıklar üçgenlere giriyor ve 45 saniyelik süre doluyor. Kırpmanın etkisi Phobetor'un bu iki fotoğraftaki tespitleri üzerinde denendi: evli fotoğrafın ışıklı alt kısmı kesilince 1,3 saniyede çözüldü, bulutlu fotoğraf kesilince de çözülmedi.
+- Tarayıcıda (WebAssembly) Phobetor fotoğraf başına 5–8 saniye, eşleştirme 0,1–2,5 saniye sürdü.
 
 ## Kataloğu yeniden üretmek
 
@@ -90,7 +112,8 @@ Kaynaklar: ESA Hipparcos Kataloğu (1997), Gaia DR3 `astrophysical_parameters` (
 
 ## Bilinen sınırlar
 
-- Phobetor telefon fotoğrafı görmeden (Euclid ile) eğitildi; sönük yıldızlarda temkinli. Gerçek telefon fotoğrafları bu çalışma ortamına indirilemedi; `site-check` gerçek gökyüzü görüntülerini (Mellinger, CDS hips2fits) ve Wikimedia Commons'taki serbest lisanslı Orion fotoğraflarını her çalışmada dener (yalnızca test sırasında indirilir, depoya girmez).
+- Phobetor telefon fotoğrafı görmeden (Euclid ile) eğitildi; sönük yıldızlarda temkinli. Gerçek fotoğraf denemeleri Wikimedia Commons'taki serbest lisanslı fotoğraflarla yapılıyor (yukarıda); telefonla çekildiği bilinen bir gece fotoğrafıyla henüz denenmedi.
+- Ön planda yıldızlardan parlak ışıklar (ev, sokak lambası) olan fotoğraflar çoğu zaman çözülemiyor; ışıklı kısım kırpılırsa şans artar. Bulut, uzun pozlamadaki yıldız izleri ve üstüne çizim yapılmış ya da birleştirilmiş (kolaj) görüntüler de çözümü bozabilir.
 - Eşleştirme parlak yıldız kataloğuyla (V ≤ 6,5) yapılır: görüş alanı 6°'den dar (teleskop) fotoğraflarda yeterince parlak yıldız olmayabilir; bunlar için WCS başlıklı FITS ya da Astrometry.net.
 - Ayna görüntüsü (ön kamera) ve çok kırpılmış ya da bükülmüş fotoğraflar çözülemeyebilir. Gezegenler, Ay ve uçak/uydu izleri katalogda yok.
 - Sunucudaki Astrometry.net yolu bu ortamda test edilemedi (ağ erişimi yoktu); kod nova API belgelerine göre yazıldı.

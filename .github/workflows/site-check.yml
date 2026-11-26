@@ -3,8 +3,8 @@ name: Site check
 # Siteyi statik olarak (GitHub Pages / Netlify ile aynı biçimde) açıp gerçek internette
 # dener: gökyüzü, Gaia DR3 katmanı (CDS HiPS kataloğu ya da VizieR yansıları), yıldız kartı,
 # FITS fotoğraf çözümü ve JPG gece fotoğraflarında Phobetor + yıldız deseni eşleştirme
-# (telefon benzeri yapay fotoğraflar ve gerçek gökyüzü görüntüleri). Önce veri servislerini
-# yoklar (tools/probe_services.py).
+# (telefon benzeri yapay fotoğraflar ve Wikimedia Commons'taki serbest lisanslı gerçek gece
+# fotoğrafları). Önce veri servislerini yoklar (tools/probe_services.py).
 on:
   push:
     branches: ['claude/**', main]

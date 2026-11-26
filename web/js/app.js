@@ -857,7 +857,8 @@
       list.innerHTML = `
         <li><small><b>Neden olabilir?</b> Fotoğrafta belirgin yıldız az olabilir (en az 8–10 iyi olur), görüntü kırpılmış,
         bükülmüş ya da çok işlenmiş olabilir; ay, bulut, sokak lambası ve uçak ışıkları da deseni bozar.</small></li>
-        <li><small>Kırpılmamış orijinal dosyayı yüklemek en iyisi: içindeki odak bilgisi eşleştirmeyi kolaylaştırır.</small></li>
+        <li><small>Orijinal dosyayı yüklemek en iyisi: içindeki odak bilgisi eşleştirmeyi kolaylaştırır. Ön planda yıldızlardan parlak
+        ışıklar (ev, sokak lambası) varsa yalnızca o kısmı kırpıp yeniden denemek işe yarayabilir.</small></li>
         <li><small>Başka bir yol: fotoğrafı ücretsiz <a href="https://nova.astrometry.net/upload" target="_blank" rel="noopener">nova.astrometry.net</a>'e yükle, oradan inen <b>new-image.fits</b> dosyasını buraya bırak.</small></li>`;
     } else {
       list.innerHTML = items.map((it, i) => {

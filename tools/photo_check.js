@@ -1,7 +1,7 @@
 /*
  * LichSpec photo check (Playwright).
  *
- *   node tools/photo_check.js <site-url> <photo-dir> [--dump-shots=1] [--readme-shots=1] [--force-wasm=1]
+ *   node tools/photo_check.js <site-url> <photo-dir> [--dump-shots=1] [--readme-shots=1] [--readme-file=<name>] [--force-wasm=1]
  *                             [--aladin-local=<aladin.js>] [--ort-local=<onnxruntime-web dist dir>]
  *
  * Uploads every photo listed in <photo-dir>/cases.json (tools/make_test_photos.py) to the site the way a
@@ -91,9 +91,9 @@ function brightStarsInFrame(page) {
   await page.waitForFunction(() => window.lichspec && window.lichspec.STARS.length > 0, null, { timeout: 90000 });
 
   const failures = [];
-  let shots = 0, readmeDone = false;
-  // README picture: the first real camera photo that solves; the last case as a fallback
-  const readmeFallback = cases.length ? cases[cases.length - 1].file : null;
+  let shots = 0;
+  // README picture: one of our own synthetic photos (third-party photos are only downloaded for the test)
+  const readmeFile = flags["readme-file"] || "orion_deep_stack.jpg";
   console.log(`== photo check: ${cases.length} photos`);
   for (const c of cases) {
     const file = path.join(dir, c.file);
@@ -137,6 +137,7 @@ function brightStarsInFrame(page) {
     if (r.names && r.names.length) console.log(`      stars: ${r.names.join(", ")} | constellations: ${r.constellations.join(", ")}`);
     if (c.source) console.log(`      source: ${c.source}`);
     if (c.note) console.log(`      note: ${c.note}`);
+    if (c.license) console.log(`      licence: ${c.license}`);
     if (r.status === "solved") {
       const b = await brightStarsInFrame(page);
       if (b && b.length) {
@@ -159,10 +160,7 @@ function brightStarsInFrame(page) {
       if (flags["dump-shots"] === "1") await dumpShot(page, "fail_" + c.file.replace(/\.\w+$/, ""));
     }
     if (!ok && c.must_solve) failures.push(c.file);
-    if (flags["readme-shots"] === "1" && ok && !readmeDone && (c.kind.startsWith("real camera") || c.file === readmeFallback)) {
-      await dumpShot(page, "readme_photo", { full: true });
-      readmeDone = true;
-    }
+    if (flags["readme-shots"] === "1" && ok && c.file === readmeFile) await dumpShot(page, "readme_photo", { full: true });
     if (flags["dump-shots"] === "1" && ok && shots < 3 && (shots === 0 || !c.kind.startsWith("synthetic"))) {
       await dumpShot(page, "photo_" + c.file.replace(/\.\w+$/, ""));
       shots++;
