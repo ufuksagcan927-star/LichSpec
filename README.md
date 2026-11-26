@@ -18,8 +18,8 @@
 
 ## The sky explorer
 
-A browser app for the whole sky: drag the globe around 360°, click any star and get a card built
-from its measured data, or drop in a telescope image and see which stars are in it.
+A browser app for the whole sky as you would see it from where you stand: look around, click any star and
+get a card built from its measured data, or drop in a telescope image and see which stars are in it.
 
 | | |
 |---|---|
@@ -30,7 +30,8 @@ from its measured data, or drop in a telescope image and see which stars are in 
 
 ### How it works
 
-- **Sky imagery** streams as HiPS tiles through [Aladin Lite v3](https://aladin.cds.unistra.fr/AladinLite/) (DSS2, Mellinger, Pan-STARRS, SDSS, 2MASS, AllWISE); nothing is embedded in the site.
+- **One view, from the ground.** The sky is drawn from inside, the way a planetarium does it (stereographic projection), with the observer's horizon, ground and compass points worked out for their place and time, and the constellation figures with Turkish names (`web/js/sky.js`).
+- **Sky imagery** streams as HiPS tiles through [Aladin Lite v3](https://aladin.cds.unistra.fr/AladinLite/): Axel Mellinger's all-sky photograph when zoomed out, DSS2 fading in as you zoom; nothing is embedded in the site.
 - **Gaia DR3** comes straight from the browser: CDS's Gaia HiPS catalogue when it answers, otherwise one "brightest 3,000 in this field" query to a VizieR mirror (CDS, Harvard CfA or IDIA, whichever answers first). Field size on that path is capped by galactic latitude, because the query scans every star in the circle.
 - **No server needed.** The site is static files (`web/`). An optional Flask server (`server/app.py`) adds a Gaia TAP proxy with ESA → Heidelberg failover and JPG/PNG plate solving through the Astrometry.net API.
 - **FITS/WCS in JavaScript** (`web/js/fits.js`): TAN and SIN projections, CD / PC / CDELT+CROTA matrices, gzip, BSCALE/BZERO, asinh preview stretch.
@@ -58,7 +59,7 @@ The name comes from the pulsar **Lich (PSR B1257+12)**, the first star found to 
 
 ## Data and credits
 
-Gaia data © ESA/Gaia/DPAC (CC BY-SA 3.0 IGO); the Hipparcos Catalogue (ESA 1997); star names from d3-celestial (BSD-3-Clause); Aladin Lite, VizieR and HiPS by CDS, Strasbourg. Details and full notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Gaia data © ESA/Gaia/DPAC (CC BY-SA 3.0 IGO); the Hipparcos Catalogue (ESA 1997); star names and constellation figures from d3-celestial (BSD-3-Clause; figures after the IAU and Sky & Telescope charts); Aladin Lite, VizieR and HiPS by CDS, Strasbourg. Details and full notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Licence
 

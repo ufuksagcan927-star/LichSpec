@@ -15,8 +15,9 @@
       <ul id="search-results" class="search-results" hidden></ul>
     </form>
     <div class="top-actions">
-      <select id="survey" aria-label="Gökyüzü görüntüsü"></select>
-      <label class="toggle"><input id="toggle-stars" type="checkbox" checked> Parlak yıldızlar</label>
+      <label class="toggle"><input id="toggle-horizon" type="checkbox" checked> Ufuk</label>
+      <label class="toggle"><input id="toggle-lines" type="checkbox" checked> Takımyıldızlar</label>
+      <label class="toggle"><input id="toggle-stars" type="checkbox" checked> Yıldızlar</label>
       <button id="btn-upload" class="btn primary" type="button">Fotoğraf yükle</button>
     </div>
   </header>
@@ -24,6 +25,10 @@
   <main class="layout">
     <section class="sky-wrap">
       <div id="aladin"></div>
+      <div class="place-chip" title="Gökyüzü bu yerden ve bu saatte görüldüğü gibi çiziliyor">
+        <span id="place-name">…</span> · <span id="place-time"></span>
+        <button id="btn-locate" type="button">Konumum</button>
+      </div>
       <div id="sky-status" class="sky-status">Gökyüzü yükleniyor…</div>
       <div id="gaia-status" class="gaia-status hint"></div>
       <div class="legend" aria-hidden="true">
@@ -41,7 +46,7 @@
         <div class="intro">
           <h1>Gökyüzüne dokun</h1>
           <p>Haritadaki bir yıldıza tıkla. LichSpec o yıldızı tanır, ölçülmüş verilerini getirir ve Draugr ne gördüğünü anlatır.</p>
-          <p class="muted">Gökyüzünü tutup sürükleyerek her yöne 360° döndürebilir, fare tekerleğiyle ya da iki parmakla yakınlaşabilirsin.</p>
+          <p class="muted">Gökyüzünü bulunduğun yerden, şu an göründüğü gibi görüyorsun: aşağısı yer, ufukta yönler (K, D, G, B). Sürükleyerek etrafına bakabilir, fare tekerleğiyle ya da iki parmakla yakınlaşabilirsin.</p>
           <p class="muted">Haritada <b id="star-count">…</b> parlak yıldız modellenmiş durumda (Hipparcos V&nbsp;&lt;&nbsp;7, Gaia DR3 parametreleriyle). Yakınlaştıkça Gaia DR3'ün kaydettiği 1,8 milyar yıldız alan alan yüklenir; her birine tıklayınca kartı ölçülmüş verilerinden otomatik oluşur.</p>
           <div class="quick">
             <button data-goto="Sirius">Sirius</button>
@@ -54,10 +59,11 @@
         </div>
       </div>
       <footer class="credits">
+        <span id="aladin-logo-slot" class="logo-slot"></span>
         Veri: <a href="https://www.cosmos.esa.int/gaia" target="_blank" rel="noopener">ESA/Gaia/DPAC</a> (Gaia DR3, CC BY-SA 3.0 IGO),
         ESA Hipparcos. Gökyüzü ve katalog erişimi: <a href="https://aladin.cds.unistra.fr/AladinLite/" target="_blank" rel="noopener">Aladin Lite</a>
-        ve VizieR (CDS, Strasbourg); görüntüler DSS2 (STScI/NASA), A. Mellinger, Pan-STARRS, SDSS, 2MASS, AllWISE.
-        Yıldız adları: d3-celestial (BSD-3).
+        ve VizieR (CDS, Strasbourg); görüntüler A. Mellinger ve DSS2 (STScI/NASA).
+        Yıldız adları, takımyıldız çizgileri ve adları: d3-celestial (BSD-3), çizgiler IAU ve Sky &amp; Telescope haritalarından.
       </footer>
     </aside>
   </main>
@@ -94,6 +100,7 @@
     window.dispatchEvent(new Event("aladin-ready"));
   </script>
   <script src="js/draugr.js"></script>
+  <script src="js/sky.js"></script>
   <script src="js/data.js"></script>
   <script src="js/fits.js"></script>
   <script src="js/app.js"></script>
