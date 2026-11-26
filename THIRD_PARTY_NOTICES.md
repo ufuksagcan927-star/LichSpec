@@ -48,6 +48,12 @@ Built by [`tools/build_constellations.py`](tools/build_constellations.py) from `
 text above). d3-celestial drew the stick figures after the IAU constellation charts (IAU and Sky & Telescope,
 Roger Sinnott and Rick Fienberg). The Turkish names are ours (`web/js/draugr.js`).
 
+### `web/models/phobetor_euclid.onnx`
+
+LichSpec's own Phobetor model (MIT, like the code), converted from the trained checkpoint by
+[`tools/export_phobetor_onnx.py`](tools/export_phobetor_onnx.py). It was trained on public Euclid Q1 data
+(ESA/Euclid/Euclid Consortium); no Euclid images are included.
+
 ### `docs/screenshots/`
 
 Screenshots of the site. The sky imagery in them is DSS2 colour (STScI/NASA, HiPS by CDS).
@@ -56,6 +62,8 @@ Screenshots of the site. The sky imagery in them is DSS2 colour (STScI/NASA, HiP
 
 - [Aladin Lite](https://aladin.cds.unistra.fr/AladinLite/) v3, CDS Strasbourg (GPL-3.0),
   loaded from jsDelivr.
+- [ONNX Runtime Web](https://onnxruntime.ai/) 1.31.1, Microsoft (MIT), loaded from jsDelivr only when a
+  photo is uploaded, to run Phobetor in the browser.
 - [VizieR](https://vizier.cds.unistra.fr/) (CDS Strasbourg) and its mirrors at Harvard CfA and
   IDIA. "This research has made use of the VizieR catalogue access tool, CDS, Strasbourg,
   France."

@@ -1,12 +1,14 @@
 name: Site check
 
 # Siteyi statik olarak (GitHub Pages / Netlify ile aynı biçimde) açıp gerçek internette
-# dener: gökyüzü, Gaia DR3 katmanı (CDS HiPS kataloğu ya da VizieR yansıları), yıldız kartı
-# ve FITS fotoğraf çözümü. Önce veri servislerini yoklar (tools/probe_services.py).
+# dener: gökyüzü, Gaia DR3 katmanı (CDS HiPS kataloğu ya da VizieR yansıları), yıldız kartı,
+# FITS fotoğraf çözümü ve JPG gece fotoğraflarında Phobetor + yıldız deseni eşleştirme
+# (telefon benzeri yapay fotoğraflar ve Wikimedia Commons'taki serbest lisanslı gerçek gece
+# fotoğrafları). Önce veri servislerini yoklar (tools/probe_services.py).
 on:
   push:
     branches: ['claude/**', main]
-    paths: ['web/**', 'tools/site_check.js', 'tools/make_test_fits.py', 'tools/probe_services.py', '.github/workflows/site-check.yml']
+    paths: ['web/**', 'tools/site_check.js', 'tools/photo_check.js', 'tools/make_test_fits.py', 'tools/make_test_photos.py', 'tools/probe_services.py', '.github/workflows/site-check.yml']
   workflow_dispatch:
 
 jobs:
@@ -21,10 +23,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Make a test FITS image
+      - name: Make a test FITS image and test photos
         run: |
-          pip install --quiet astropy numpy requests
+          pip install --quiet astropy numpy requests pillow
           python tools/make_test_fits.py site-check-out/pleiades.fits
+          python tools/make_test_photos.py site-check-out/photos --real
       - name: Probe the data services (VizieR mirrors, CORS, Gaia columns, field query timing)
         continue-on-error: true
         timeout-minutes: 6
@@ -33,11 +36,15 @@ jobs:
         run: |
           npm install --no-save playwright@1.47.2
           npx playwright install --with-deps chromium
-      - name: Serve the site statically and run the check
+      - name: Serve the site statically
         run: |
           (cd web && python -m http.server 8080 > /dev/null 2>&1 &)
           sleep 2
-          node tools/site_check.js http://localhost:8080/ site-check-out/pleiades.fits site-check-out --dump-shots=1
+      - name: Site check (sky, Gaia layer, star card, FITS upload)
+        run: node tools/site_check.js http://localhost:8080/ site-check-out/pleiades.fits site-check-out --dump-shots=1 --readme-shots=1
+      - name: Photo check (Phobetor in the browser + star pattern matching on phone-like and real photos)
+        if: success() || failure()
+        run: node tools/photo_check.js http://localhost:8080/ site-check-out/photos --dump-shots=1 --readme-shots=1
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -630,12 +630,35 @@
             if (LichData.mode !== "server") { showNeedsSolver(true); return; }
           }
         }
-        if (LichData.mode !== "server") { showNeedsSolver(false); return; }
-        await solveOnServer(f);
+        await solvePhoto(f);
       } catch (e) {
+        console.error(e);
+        status.hidden = false;
         status.className = "upload-status error";
         status.textContent = e.message;
       }
+    }
+
+    // JPG/PNG gece fotoğrafı: Phobetor yıldızları tarayıcıda bulur, LichSolve deseni kataloğla eşleştirir.
+    async function solvePhoto(f) {
+      const say = (t) => { status.hidden = false; status.className = "upload-status"; status.textContent = t; };
+      say("Fotoğraf açılıyor…");
+      const exifP = LichPhobetor.readExif(f);
+      await LichPhobetor.init(say);
+      const maxSide = LichPhobetor.backend === "webgpu" ? 1280 : 800;
+      say("Fotoğraf hazırlanıyor…");
+      const img = await LichPhobetor.loadImage(f, maxSide);
+      const ph = await LichPhobetor.detect(img, { onStatus: say });
+      const exif = await exifP;
+      let sol = { ok: false, reason: "few_stars", nDet: ph.det.length };
+      if (ph.det.length >= 5) {
+        say(`Phobetor ${ph.det.length.toLocaleString("tr-TR")} yıldız buldu. Yıldız deseni gökyüzü kataloğuyla eşleştiriliyor…`);
+        sol = await solveInWorker(ph.det, img.W, img.H, { focal35: exif.focal35 }, (a, b) =>
+          say(`Phobetor ${ph.det.length.toLocaleString("tr-TR")} yıldız buldu. Yıldız deseni kataloğla eşleştiriliyor… (olası görüş açılarının ${a}/${b} kadarı denendi)`));
+      }
+      if (!sol.ok && LichData.mode === "server") { await solveOnServer(f); return; }
+      status.hidden = true;
+      renderSolve(photoResult(f, img, ph, sol, exif));
     }
 
     // Statik barındırmada JPG/PNG için koordinat çözücü yok: kullanıcıyı ücretsiz
@@ -667,6 +690,125 @@
     }
   }
 
+  // -------------------------------------------------------------- fotoğraf çözümü (Phobetor + LichSolve)
+  let solveWorker = null;
+  function solveInWorker(det, W, H, opts, onProgress) {
+    const plain = det.map((d) => ({ x: d.x, y: d.y, flux: d.flux }));
+    return new Promise((resolve, reject) => {
+      let w;
+      try {
+        if (!solveWorker) {
+          solveWorker = new Worker("js/solve.js");
+          solveWorker.postMessage({ type: "catalog", stars: STARS.filter((s) => s.v != null && s.v <= 6.5).map((s) => [s.hip, s.ra, s.dec, s.v]) });
+        }
+        w = solveWorker;
+      } catch (e) {
+        // Worker açılamadı (ör. dosyadan açılan sayfa): ana iş parçacığında çöz
+        const cat = new LichSolve.Catalog(STARS, 6.5);
+        const r = LichSolve.solve(cat, plain, W, H, opts);
+        if (r.ok) { const c = r.cam; r.cam = { R: c.R, f: c.f, cx: c.cx, cy: c.cy, k1: c.k1, k2: c.k2, rpix: c.rpix }; r.pairs = r.pairs.map(([d, i, dx, dy]) => [d, cat.stars[i].hip, dx, dy]); }
+        resolve(r);
+        return;
+      }
+      const done = () => { w.removeEventListener("message", onMsg); w.removeEventListener("error", onErr); };
+      const onMsg = (e) => {
+        const m = e.data;
+        if (m.type === "progress") onProgress && onProgress(m.tried, m.total);
+        else if (m.type === "result") { done(); resolve(m.result); }
+        else if (m.type === "error") { done(); reject(new Error("Eşleştirme hatası: " + m.message)); }
+      };
+      const onErr = (e) => { done(); solveWorker = null; reject(new Error("Eşleştirici başlatılamadı: " + (e.message || "bilinmeyen hata"))); };
+      w.addEventListener("message", onMsg);
+      w.addEventListener("error", onErr);
+      w.postMessage({ type: "solve", det: plain, W, H, opts });
+    });
+  }
+
+  /** Phobetor tespitleri + eşleştirme sonucunu sonuç penceresinin beklediği biçime getir. */
+  function photoResult(f, img, ph, sol, exif) {
+    const W = img.W, H = img.H;
+    const j = {
+      status: sol.ok ? "solved" : "failed", source: "phobetor", file: f.name,
+      width: W, height: H, preview: { url: img.canvas.toDataURL("image/jpeg", 0.9), scale: 1, y_flipped: false },
+      phobetor: { n: ph.det.length, backend: ph.backend, ms: ph.ms, threshold: ph.threshold },
+      solver: { ms: sol.ms, focalsTried: sol.focalsTried, reason: sol.reason },
+      exif, detections: ph.det, stars: [], gaia: [],
+    };
+    if (!sol.ok) return j;
+    const c = sol.cam;
+    const cam = new LichSolve.Camera(c.R, c.f, c.cx, c.cy, c.k1, c.k2, c.rpix || 0.6 * Math.hypot(W, H));
+    const [ra0, dec0] = cam.pix2world((W - 1) / 2, (H - 1) / 2);
+    const border = [], n = 10;
+    for (let i = 0; i < n; i++) border.push([(i / n) * (W - 1), 0]);
+    for (let i = 0; i < n; i++) border.push([W - 1, (i / n) * (H - 1)]);
+    for (let i = 0; i < n; i++) border.push([(1 - i / n) * (W - 1), H - 1]);
+    for (let i = 0; i < n; i++) border.push([0, (1 - i / n) * (H - 1)]);
+    const corners = border.map(([x, y]) => cam.pix2world(x, y));
+    const radius = Math.max(...corners.map(([a, b]) => angSep(ra0, dec0, a, b)));
+    const matched = new Set();
+    for (const [d, hip] of sol.pairs) {
+      const s = byHip.get(hip), p = sol.det[d];
+      if (!s || !p) continue;
+      matched.add(Math.round(p.x * 8) + "," + Math.round(p.y * 8));
+      j.stars.push({ ...s, src: "bright", x: p.x, y: p.y });
+    }
+    // En parlak yıldızların çekirdeği doyunca Phobetor onları bazen kaçırır ya da halesinde bulur. Çözüm
+    // belli olduğu için fotoğrafa düşen en parlak yıldızlar (V ≤ 1,5) eşleşmemişse hesaplanan yerinde
+    // gösterilir (kesik çizgili halka). Daha sönükler gösterilmez: ağaç ya da bina arkasında kalmış olabilirler.
+    const have = new Set(j.stars.map((s) => s.hip));
+    for (const s of STARS) {
+      if (!(s.v <= 1.5) || have.has(s.hip)) continue;
+      const p = cam.world2pix(s.ra, s.dec);
+      if (p && p[0] >= 0 && p[1] >= 0 && p[0] <= W - 1 && p[1] <= H - 1) j.stars.push({ ...s, src: "bright", x: p[0], y: p[1], predicted: true });
+    }
+    j.stars.sort((a, b) => (a.v ?? 99) - (b.v ?? 99));
+    j.detections = ph.det.map((d) => ({ ...d, matched: matched.has(Math.round(d.x * 8) + "," + Math.round(d.y * 8)) }));
+    // takımyıldız çizgileri ve adları (düzlemsel izdüşümde büyük daireler doğru çizgidir)
+    const lim = 4 * Math.max(W, H), ok = (p) => p && Math.abs(p[0]) < lim && Math.abs(p[1]) < lim;
+    const segs = [];
+    for (const line of CONS ? CONS.lines : []) {
+      let prev = null;
+      for (let i = 0; i < line.length; i += 2) {
+        const p = cam.world2pix(line[i], line[i + 1]);
+        if (ok(p) && ok(prev)) segs.push([prev[0], prev[1], p[0], p[1]]);
+        prev = p;
+      }
+    }
+    const labels = [], shown = new Set();
+    for (const [abbr, ra, dec] of CONS ? CONS.labels : []) {
+      const p = cam.world2pix(ra, dec);
+      if (p && p[0] > W * 0.03 && p[1] > H * 0.04 && p[0] < W * 0.97 && p[1] < H * 0.97) {
+        labels.push([D.CON_TR[abbr] || abbr, p[0], p[1]]);
+        shown.add(abbr);
+      }
+    }
+    // Dar açılı fotoğrafta takımyıldızın ad konumu çoğu zaman çerçevenin dışında kalır: tanınan
+    // yıldızların en az %15'i bir takımyıldızdansa adı o yıldızların ortasına, yıldız adlarından uzağa yazılır.
+    const byCon = new Map();
+    for (const s of j.stars) if (s.con) byCon.set(s.con, (byCon.get(s.con) || []).concat([s]));
+    const named = j.stars.slice(0, 15);
+    const fsz = Math.max(12, W / 62);
+    [...byCon.entries()].filter(([abbr, list]) => !shown.has(abbr) && list.length >= Math.max(4, 0.15 * j.stars.length))
+      .sort((a, b) => b[1].length - a[1].length).slice(0, 3).forEach(([abbr, list]) => {
+        const med = (v) => v.slice().sort((a, b) => a - b)[v.length >> 1];
+        const mx = med(list.map((s) => s.x)), my = med(list.map((s) => s.y));
+        for (const dy of [0, -0.07, 0.07, -0.14, 0.14, -0.21, 0.21]) {
+          const y = Math.min(H * 0.95, Math.max(H * 0.05, my + dy * H));
+          if (named.every((s) => Math.abs(s.y - y) > 1.6 * fsz || Math.abs(s.x - mx) > 5 * fsz)) {
+            labels.push([D.CON_TR[abbr] || abbr, mx, y]);
+            break;
+          }
+        }
+      });
+    Object.assign(j, {
+      center: { ra: ra0, dec: dec0 }, radius_deg: radius, pixscale_arcsec: (3600 * 180) / Math.PI / cam.f,
+      corners, cons: { segs, labels },
+      cam: { R: c.R, f: c.f, cx: c.cx, cy: c.cy, k1: c.k1, k2: c.k2, rpix: cam.rpix },
+      fov: { h: sol.hfov, v: sol.vfov }, solver: { ...j.solver, rms: sol.rms, logp: sol.logp, matched: sol.pairs.length },
+    });
+    return j;
+  }
+
   function solvedStarTitle(x) {
     if (x.src === "bright") return D.title(x);
     return `Gaia DR3 …${String(x.source_id).slice(-7)}`;
@@ -674,34 +816,60 @@
 
   function renderSolve(j) {
     lastSolve = j;
+    const photo = j.source === "phobetor", solved = j.status === "solved";
     const pv = j.preview;
     const img = $("#photo"), svg = $("#photo-marks"), list = $("#solve-list");
     img.src = pv.url || `data:${pv.mime};base64,${pv.data}`;
     const W = Math.round(j.width * pv.scale), H = Math.round(j.height * pv.scale);
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
     const toPng = (x, y) => [x * pv.scale, (pv.y_flipped ? j.height - 1 - y : y) * pv.scale];
+    const k = Math.max(0.6, W / 900);          // işaret boyu, görüntü genişliğine göre
+    const fs = Math.max(12, W / 62);            // yazı boyu (görüntü birimiyle)
 
-    // Parlak katalog yıldızları + Gaia'nın en parlak 40 kaynağı (parlak yıldızla çakışanlar hariç)
-    const items = j.stars.map((s) => ({ ...s }));
-    const gaia = j.gaia.filter((g) => !items.some((s) => Math.hypot(s.x - g.x, s.y - g.y) * j.pixscale_arcsec < 3)).slice(0, 40);
+    // Parlak katalog yıldızları + Gaia'nın en parlak 40 kaynağı (parlak yıldızla çakışanlar hariç).
+    // Geniş açılı fotoğrafta yüzlerce yıldız tanınır: listede en parlak 150'si, halkayla en parlak 60'ı.
+    const items = (j.stars || []).slice(0, photo ? 150 : Infinity).map((s) => ({ ...s }));
+    const gaia = (j.gaia || []).filter((g) => !items.some((s) => Math.hypot(s.x - g.x, s.y - g.y) * j.pixscale_arcsec < 3)).slice(0, 40);
     gaia.forEach((g) => items.push(g));
 
-    svg.innerHTML = items.map((it, i) => {
+    let marks = "";
+    if (photo && j.cons) {
+      // fotoğrafın üstüne takımyıldız çizgileri ve adları
+      marks += `<g class="cons">${j.cons.segs.map(([x1, y1, x2, y2]) => `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"></line>`).join("")}`
+        + `${j.cons.labels.map(([t, x, y]) => `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" font-size="${(fs * 0.9).toFixed(1)}" text-anchor="middle">${esc(t.toLocaleUpperCase("tr-TR"))}</text>`).join("")}</g>`;
+    }
+    if (photo) {
+      // Phobetor'un bulup kataloğa oturtulamayan noktaları: sönük yıldız, gezegen, uçak, lamba…
+      marks += `<g class="det">${(j.detections || []).filter((d) => !d.matched).map((d) => `<circle cx="${d.x.toFixed(1)}" cy="${d.y.toFixed(1)}" r="${(2.6 * k).toFixed(1)}"></circle>`).join("")}</g>`;
+    }
+    marks += items.map((it, i) => {
       const [px, py] = toPng(it.x, it.y);
       const mag = it.src === "bright" ? it.v : it.phot_g_mean_mag;
-      const r = Math.max(5, Math.min(22, 18 - 1.1 * (mag ?? 14))) * Math.max(0.6, W / 900);
-      const label = it.src === "bright" && i < 15 ? `<text x="${px + r + 3}" y="${py + 4}">${esc(D.title(it))}</text>` : "";
-      return `<circle class="${it.src}" data-i="${i}" cx="${px}" cy="${py}" r="${r}"></circle>${label}`;
+      const r = photo
+        ? (i < 60 ? (mag < 1 ? 13 : mag < 2 ? 10.5 : mag < 3 ? 8.5 : mag < 4 ? 7 : 5.5) : 3.2) * Math.max(0.5, W / 1000)
+        : Math.max(5, Math.min(22, 18 - 1.1 * (mag ?? 14))) * k;
+      const label = it.src === "bright" && i < 15 ? `<text x="${(px + r + 3).toFixed(1)}" y="${(py + fs * 0.35).toFixed(1)}" font-size="${fs.toFixed(1)}">${esc(D.title(it))}</text>` : "";
+      return `<circle class="${it.src}${photo && i >= 60 ? " minor" : ""}${it.predicted ? " predicted" : ""}" data-i="${i}" cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${r.toFixed(1)}"></circle>${label}`;
     }).join("");
+    svg.innerHTML = marks;
 
-    list.innerHTML = items.map((it, i) => {
-      const mag = it.src === "bright" ? `V ${D.fmt(it.v, 2)}` : `G ${D.fmt(it.phot_g_mean_mag, 2)}`;
-      const extra = it.src === "bright" ? [it.sp, it.desig && it.name ? it.desig : null].filter(Boolean).join(" · ") : [it.teff_gspphot ? `${D.fmtInt(it.teff_gspphot)} K` : null, it.spectraltype_esphs].filter(Boolean).join(" · ");
-      return `<li data-i="${i}"><span>${esc(solvedStarTitle(it))}</span><span class="kind ${it.src}">${it.src === "bright" ? "LichSpec" : "Gaia"}</span><small>${mag}${extra ? " · " + esc(extra) : ""}</small></li>`;
-    }).join("") || `<li><small>Görüntü alanında tanınan yıldız yok.</small></li>`;
+    if (photo && !solved) {
+      list.innerHTML = `
+        <li><small><b>Neden olabilir?</b> Fotoğrafta belirgin yıldız az olabilir (en az 8–10 iyi olur), görüntü kırpılmış,
+        bükülmüş ya da çok işlenmiş olabilir; ay, bulut, sokak lambası ve uçak ışıkları da deseni bozar.</small></li>
+        <li><small>Orijinal dosyayı yüklemek en iyisi: içindeki odak bilgisi eşleştirmeyi kolaylaştırır. Ön planda yıldızlardan parlak
+        ışıklar (ev, sokak lambası) varsa yalnızca o kısmı kırpıp yeniden denemek işe yarayabilir.</small></li>
+        <li><small>Başka bir yol: fotoğrafı ücretsiz <a href="https://nova.astrometry.net/upload" target="_blank" rel="noopener">nova.astrometry.net</a>'e yükle, oradan inen <b>new-image.fits</b> dosyasını buraya bırak.</small></li>`;
+    } else {
+      list.innerHTML = items.map((it, i) => {
+        const mag = it.src === "bright" ? `V ${D.fmt(it.v, 2)}` : `G ${D.fmt(it.phot_g_mean_mag, 2)}`;
+        const extra = it.src === "bright" ? [it.sp, it.desig && it.name ? it.desig : null].filter(Boolean).join(" · ") : [it.teff_gspphot ? `${D.fmtInt(it.teff_gspphot)} K` : null, it.spectraltype_esphs].filter(Boolean).join(" · ");
+        return `<li data-i="${i}"><span>${esc(solvedStarTitle(it))}</span><span class="kind ${it.src}">${it.src === "bright" ? "LichSpec" : "Gaia"}</span><small>${mag}${extra ? " · " + esc(extra) : ""}${it.predicted ? " · yeri hesaplandı (Phobetor bulamadı)" : ""}</small></li>`;
+      }).join("") || `<li><small>Görüntü alanında tanınan yıldız yok.</small></li>`;
+    }
 
     const select = (i) => {
-      svg.querySelectorAll("circle").forEach((c) => c.classList.toggle("active", +c.dataset.i === i));
+      svg.querySelectorAll("circle[data-i]").forEach((c) => c.classList.toggle("active", +c.dataset.i === i));
       list.querySelectorAll("li").forEach((l) => l.classList.toggle("active", +l.dataset.i === i));
       const it = items[i];
       $("#upload-dialog").close();
@@ -709,26 +877,47 @@
       if (it.src === "bright") showStar(byHip.get(it.hip) || it);
       else { gotoStar(it, Math.max(0.05, j.radius_deg * 1.2)); openGaiaStar(it); }
     };
-    svg.querySelectorAll("circle").forEach((c) => c.onclick = () => select(+c.dataset.i));
+    svg.querySelectorAll("circle[data-i]").forEach((c) => c.onclick = () => select(+c.dataset.i));
     list.querySelectorAll("li[data-i]").forEach((l) => l.onclick = () => select(+l.dataset.i));
 
-    const fovTxt = j.radius_deg * 2 >= 1 ? `${D.fmt(j.radius_deg * 2, 2)}°` : `${D.fmt(j.radius_deg * 120, 1)}′`;
-    $("#solve-meta").innerHTML = `
-      <span>Merkez <b>${hms(j.center.ra)} ${dms(j.center.dec)}</b></span>
-      <span>Alan çapı <b>${fovTxt}</b></span>
-      <span>Ölçek <b>${D.fmt(j.pixscale_arcsec, 3)}″/piksel</b></span>
-      <span>Tanınan: <b>${j.stars.length}</b> parlak yıldız, <b>${j.gaia.length}</b> Gaia kaynağı${j.gaia_radius_deg ? ` (Gaia: görüntünün ortasındaki ${D.fmt(j.gaia_radius_deg * 2, 2)}° çaplı alan)` : ""}</span>
-      <span>Çözüm: <b>${j.source === "fits-wcs" ? "FITS başlığındaki WCS" : "Astrometry.net"}</b></span>
-      ${j.gaia_error ? `<span class="error">${esc(j.gaia_error)}</span>` : ""}`;
+    const meta = [];
+    if (photo) {
+      const ph = j.phobetor;
+      const n = ph.n.toLocaleString("tr-TR");
+      meta.push(`<span>Phobetor: <b>${n} yıldız</b> buldu (${ph.backend === "webgpu" ? "WebGPU" : "WebAssembly"}, ${D.fmt(ph.ms / 1000, 1)} sn)</span>`);
+    }
+    if (solved) {
+      const fovTxt = photo ? `${D.fmt(j.fov.h, 1)}° × ${D.fmt(j.fov.v, 1)}°`
+        : j.radius_deg * 2 >= 1 ? `${D.fmt(j.radius_deg * 2, 2)}°` : `${D.fmt(j.radius_deg * 120, 1)}′`;
+      meta.push(`<span>Merkez <b>${hms(j.center.ra)} ${dms(j.center.dec)}</b></span>`);
+      meta.push(`<span>${photo ? "Görüş alanı" : "Alan çapı"} <b>${fovTxt}</b></span>`);
+      const nPred = photo ? j.stars.filter((s) => s.predicted).length : 0, nRec = j.stars.length - nPred;
+      meta.push(photo ? `<span>Tanınan: <b>${nRec.toLocaleString("tr-TR")}</b> yıldız${j.stars.length > items.length ? ` (listede en parlak ${items.length} tanesi)` : ""}${nPred ? ` · ${nPred} parlak yıldız hesaplanan yerinde` : ""}</span>`
+        : `<span>Ölçek <b>${D.fmt(j.pixscale_arcsec, 3)}″/piksel</b></span>`);
+      if (!photo) meta.push(`<span>Tanınan: <b>${j.stars.length}</b> parlak yıldız, <b>${j.gaia.length}</b> Gaia kaynağı${j.gaia_radius_deg ? ` (Gaia: görüntünün ortasındaki ${D.fmt(j.gaia_radius_deg * 2, 2)}° çaplı alan)` : ""}</span>`);
+      meta.push(`<span>Çözüm: <b>${j.source === "fits-wcs" ? "FITS başlığındaki WCS" : photo ? "yıldız deseni eşleştirme (tarayıcında)" : "Astrometry.net"}</b>${photo ? ` · ortalama sapma ${D.fmt(j.solver.rms, 1)} piksel` : ""}</span>`);
+    } else if (photo) {
+      meta.push(`<span class="error">${j.solver.reason === "few_stars"
+        ? `Deseni eşleştirmek için en az 5 yıldız gerekiyor; bu fotoğrafta ${j.phobetor.n} tane bulundu.`
+        : "Yıldız deseni gökyüzü kataloğuyla eşleşmedi."}</span>`);
+    }
+    if (j.gaia_error) meta.push(`<span class="error">${esc(j.gaia_error)}</span>`);
+    $("#solve-meta").innerHTML = meta.join("");
+    $("#btn-show-on-sky").hidden = !solved;
     $("#solve-result").hidden = false;
   }
 
   function showSolveOnSky(j, setView = true) {
     footprintLayer.removeAll();
     footprintLayer.add(A.polygon(j.corners.map(([a, b]) => [a, b])));
+    // fotoğraftaki bölge şu an ufkun altındaysa ufku kaldır, yoksa yer onu örter
+    if (sky && sky.horizon && sky.altaz(j.center.ra, j.center.dec).alt < 0) {
+      sky.setHorizon(false);
+      $("#toggle-horizon").checked = false;
+    }
     if (setView) {
       aladin.gotoRaDec(j.center.ra, j.center.dec);
-      aladin.setFoV(Math.max(0.05, j.radius_deg * 3));
+      aladin.setFoV(Math.min(170, Math.max(0.05, j.radius_deg * (j.source === "phobetor" ? 2.4 : 3))));
       const near = j.stars[0];
       if (near) showStar(byHip.get(near.hip) || near, { goto: false });
     }
@@ -745,9 +934,7 @@
     }
     initSearch();
     await LichData.detect();
-    $("#drop-hint").textContent = LichData.mode === "server"
-      ? "FITS (WCS başlıklı) tarayıcında anında çözülür. JPG/PNG için Astrometry.net kullanılır; birkaç dakika sürebilir."
-      : "WCS başlıklı FITS dosyaları tarayıcında anında çözülür. JPG/PNG için ücretsiz Astrometry.net'ten çözülmüş FITS'i yükleyebilirsin.";
+
     const ready = await new Promise((res) => {
       if (window.A) return res(true);
       window.addEventListener("aladin-ready", () => res(true), { once: true });
@@ -771,6 +958,7 @@
       aladin, STARS, showStar, renderSolve, sky, data: LichData,
       get gaiaMode() { return gaiaMode; },
       get imagery() { return { wide: wideFailed ? "DSS2 (Mellinger unreachable)" : "Mellinger", detail: detailOn }; },
+      get lastSolve() { return lastSolve; },
     };
   }
 
