@@ -18,18 +18,23 @@
   let byHip = new Map();
   let lastSolve = null;
   let magLimit = 6;        // görüş alanına göre çizilen en sönük yıldız
+  let selected = null;     // kartı açık yıldız: gökyüzünde halkayla gösterilir
 
   // -------------------------------------------------------------- katalog
   async function loadCatalog() {
     const r = await fetch("data/bright_stars.json");
     const j = await r.json();
-    const cols = j.meta.cols;
-    STARS = j.stars.map((row) => {
-      const o = {};
+    const objects = (cols, rows, base) => rows.map((row) => {
+      const o = { ...base };
       cols.forEach((c, i) => { if (row[i] !== null) o[c] = row[i]; });
       return o;
     });
-    STARS.forEach((s) => byHip.set(s.hip, s));
+    // Hipparcos satırları + Hipparcos'ta olmayan ünlü yıldızlar (Wolf 359, TRAPPIST-1…: doğrudan Gaia DR3)
+    STARS = objects(j.meta.cols, j.stars, {}).concat(objects(j.meta.extra_cols || [], j.extra || [], { _origin: "gaia" }));
+    STARS.forEach((s) => { if (s.hip) byHip.set(s.hip, s); });
+    // Adı yazılan parlak yıldızlardan biri daha parlak bir komşusunun dibindeyse (α Cen A/B) adı yazılmaz
+    const labelled = STARS.filter((s) => s.name && s.v < 2.6).sort((a, b) => a.v - b.v);
+    labelled.forEach((s, i) => { if (labelled.slice(0, i).some((b) => angSep(s.ra, s.dec, b.ra, b.dec) < 0.05)) s._nolabel = true; });
     $("#star-count").textContent = STARS.length.toLocaleString("tr-TR");
   }
 
@@ -43,15 +48,24 @@
     return Math.max(1.4, Math.min(9, 5.2 - 0.62 * v));
   }
 
-  /** Geniş bakışta yalnızca gözle görülebilecek kadar parlak yıldızlar; yakınlaştıkça hepsi. */
+  /** Geniş bakışta yalnızca gözle görülebilecek kadar parlak yıldızlar; yakınlaştıkça hepsi
+   * (kataloğun sönük yıldızları adı olanlar: Proxima Centauri, Barnard Yıldızı…). */
   function updateMagLimit(fov) {
-    magLimit = fov > 120 ? 5.0 : fov > 60 ? 5.6 : fov > 25 ? 6.3 : 9;
+    magLimit = fov > 120 ? 5.0 : fov > 60 ? 5.6 : fov > 25 ? 6.3 : fov > 8 ? 9 : 99;
   }
 
   function drawStar(source, ctx) {
     const s = source.data.star;
-    if ((s.v ?? 6.5) > magLimit) return;
-    const r = starRadius(s.v ?? 6.5);
+    const mag = s.v ?? s.g ?? 6.5;   // Gaia'dan gelenlerde V yok, G var
+    if (mag > magLimit && s !== selected) return;
+    const r = starRadius(mag);
+    if (s === selected) {
+      ctx.beginPath();
+      ctx.arc(source.x, source.y, r + 7, 0, 2 * Math.PI);
+      ctx.strokeStyle = "rgba(25, 201, 212, 0.95)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
     const col = s._color || (s._color = s.bv != null ? D.bvColor(s.bv) : "#ffffff");
     ctx.beginPath();
     ctx.arc(source.x, source.y, r + 2.2, 0, 2 * Math.PI);
@@ -61,7 +75,7 @@
     ctx.arc(source.x, source.y, r, 0, 2 * Math.PI);
     ctx.fillStyle = col;
     ctx.fill();
-    if (s.name && (s.v ?? 9) < 2.6) {
+    if (s.name && (s.v ?? 9) < 2.6 && !s._nolabel) {
       ctx.font = "12px system-ui, sans-serif";
       ctx.fillStyle = "rgba(232,234,246,0.85)";
       ctx.fillText(s.name, source.x + r + 4, source.y + 4);
@@ -349,9 +363,20 @@
   }
 
   function gotoStar(s, fov = 6) {
+    const hid = revealBelowHorizon(s.ra, s.dec);
     aladin.gotoRaDec(s.ra, s.dec);
     if (aladin.getFov()[0] > fov) aladin.setFoV(fov);
+    return hid;
   }
+
+  /** Ufuk açıkken gidilen yer şu an ufkun altındaysa yer gizlenir (yoksa opak yer onu örterdi). */
+  function revealBelowHorizon(ra, dec) {
+    if (!sky || !sky.horizon || sky.altaz(ra, dec).alt >= 0) return false;
+    sky.setHorizon(false);
+    $("#toggle-horizon").checked = false;
+    return true;
+  }
+  const HORIZON_NOTE = `<p class="note horizon-note">Şu an ufkun altında olduğu için yer gizlendi. Yeniden açmak için üstteki <b>Ufuk</b> kutusu.</p>`;
 
   // -------------------------------------------------------------- yardımcılar
   function angSep(ra1, de1, ra2, de2) {
@@ -382,11 +407,15 @@
 
   // -------------------------------------------------------------- yıldız kartı
   function showStar(s, { goto = true, pending = false, keepScroll = false } = {}) {
-    if (goto) gotoStar(s);
+    select(s);
+    const hid = goto ? gotoStar(s) : false;
     const d = D.derive(s);
     const body = $("#panel-body");
-    const cat = s._origin === "gaia" ? "Gaia DR3" : "Hipparcos";
-    const ids = s._origin === "gaia" ? [] : [s.desig && s.name ? s.desig : null, s.hip ? `HIP ${s.hip}` : null, s.hd ? `HD ${s.hd}` : null, s.gaia ? `Gaia DR3 ${s.gaia}` : null].filter(Boolean);
+    const ids = (s._origin === "gaia"
+      ? [s.name && s.gaia ? `Gaia DR3 ${s.gaia}` : null]
+      : [s.desig && s.name ? s.desig : null, s.hip ? `HIP ${s.hip}` : null, s.hd ? `HD ${s.hd}` : null, s.gaia ? `Gaia DR3 ${s.gaia}` : null]).filter(Boolean);
+    // diğer adları: Türkçe ad, yaygın adlar, Gliese / değişen yıldız adları
+    const aka = [s.tr, ...(s.alias || [])].filter((x) => x && x !== s.name && x !== s.desig).slice(0, 6);
 
     const facts = [];
     const fact = (k, v, src) => facts.push(`<dt>${k}</dt><dd>${v}${src ? `<span class="src">${esc(src)}</span>` : ""}</dd>`);
@@ -401,7 +430,7 @@
     if (s.g != null) fact("Parlaklık (G)", `${D.fmt(s.g, 2)} kadir`, "Gaia DR3");
     if (s.bprp != null) fact("Renk (BP−RP)", D.fmt(s.bprp, 2), "Gaia DR3");
     if (s.bv != null) fact("Renk (B−V)", D.fmt(s.bv, 2), "Hipparcos");
-    if (d.dist_ly) fact("Uzaklık", `${D.fmtInt(d.dist_ly)} ışık yılı`, d.src.dist);
+    if (d.dist_ly) fact("Uzaklık", `${D.fmtDist(d.dist_ly)} ışık yılı`, d.src.dist);
     if (s.sp) fact("Tayf türü", esc(s.sp), s._origin === "gaia" ? "Gaia ESP-HS (yalnız sınıf)" : "Hipparcos");
     if (d.teff) fact("Sıcaklık", `${d.teff_est ? "≈ " : ""}${D.fmtInt(d.teff)} K`, d.src.teff);
     if (s.logg_s ?? s.logg) fact("Yüzey çekimi", `log g = ${D.fmt(s.logg_s ?? s.logg, 2)}`, s.logg_s != null ? "Gaia RVS" : "Gaia fotometri");
@@ -437,9 +466,11 @@
         <div class="star-dot" style="background:radial-gradient(circle at 40% 40%, #fff, ${glow} 55%, transparent 72%);--glow:${glow}88"></div>
         <div>
           <h2${D.title(s).length > 22 ? ' style="font-size:16px"' : ""}>${esc(D.title(s))}</h2>
+          ${aka.length ? `<div class="aka">${aka.map(esc).join(" · ")}</div>` : ""}
           <div class="ids">${ids.map(esc).join(" · ")}</div>
         </div>
       </div>
+      ${hid ? HORIZON_NOTE : ""}
       <div class="chips">
         ${d.info ? `<span class="chip">${esc(d.info.name)}${d.cls_est ? " (tahmini)" : ""}</span>` : ""}
         ${d.lum ? `<span class="chip">${esc(d.lum.name)}</span>` : ""}
@@ -493,38 +524,54 @@
   async function loadGaia(ra, dec, rArcsec, el, star) {
     el.innerHTML = `<p class="loading">Gaia DR3 sorgulanıyor…</p>`;
     try {
-      const src = await LichData.cone(ra, dec, rArcsec);
-      if (!src.length) { el.innerHTML = `<p class="muted">Bu noktada Gaia DR3 kaynağı bulunamadı.</p>`; return; }
-      if (star) {
-        // Hipparcos konumu 1991 çağında; yüksek öz hareketli yıldızlar Gaia'da (2016) birkaç ″ kaymış olabilir.
-        // 30″ içindeki en parlak kaynağı al.
-        let g = src.slice().sort((a, b) => (a.phot_g_mean_mag ?? 99) - (b.phot_g_mean_mag ?? 99))[0];
+      let g = null;
+      if (star && star.gaia) {
+        // Hipparcos–Gaia DR3 eşleşmesi katalogda var: kaynak doğrudan kimliğiyle alınır. Hipparcos konumu
+        // 1991 çağında; öz hareketi büyük yıldızlar 2016'ya kadar dakikalarca kaydı (Barnard Yıldızı 4′),
+        // bu yüzden kimlik 10′ içinde aranır.
+        try {
+          g = await LichData.source(star.gaia, ra, dec, 600);
+          g.sep_arcsec = angSep(ra, dec, g.ra, g.dec) * 3600;
+          g.matched = true;
+        } catch (_) { g = null; /* yakındaki en parlak kaynağa bakılır */ }
+      }
+      if (!g) {
+        const src = await LichData.cone(ra, dec, rArcsec);
+        if (!src.length) { el.innerHTML = `<p class="muted">Bu noktada Gaia DR3 kaynağı bulunamadı.</p>`; return; }
+        if (!star) { renderGaiaList(src, el); return; }
+        // eşleşme yoksa 30″ içindeki en parlak kaynak
+        g = src.slice().sort((a, b) => (a.phot_g_mean_mag ?? 99) - (b.phot_g_mean_mag ?? 99))[0];
         try {
           g = { ...g, ...(await LichData.source(g.source_id, g.ra, g.dec)), sep_arcsec: g.sep_arcsec };
         } catch (_) { /* alan satırıyla devam */ }
-        const rows = [];
-        const f = (k, v) => rows.push(`<dt>${k}</dt><dd>${v}</dd>`);
-        f("Kaynak", `Gaia DR3 ${esc(g.source_id)} <span class="src">${D.fmt(g.sep_arcsec, 2)}″ uzakta</span>`);
-        if (g.phot_g_mean_mag != null) f("G kadir", D.fmt(g.phot_g_mean_mag, 3));
-        if (g.bp_rp != null) f("BP−RP", D.fmt(g.bp_rp, 3));
-        if (g.parallax != null) f("Paralaks", `${D.fmt(g.parallax, 3)} ± ${D.fmt(g.parallax_error, 3)} mas`);
-        if (g.radial_velocity != null) f("Dikine hız", `${D.fmt(g.radial_velocity, 1)} km/s`);
-        if (g.teff_gspphot != null) f("Teff (GSP-Phot)", `${D.fmtInt(g.teff_gspphot)} K`);
-        if (g.spectraltype_esphs) f("Tayf (ESP-HS)", esc(g.spectraltype_esphs));
-        el.innerHTML = `<dl class="facts">${rows.join("")}</dl>
-          <p class="note">Çok parlak yıldızlar (V &lt; 3) Gaia dedektörlerini doyurur; bu yüzden bazılarında Gaia parametreleri eksik ya da güvenilmezdir.</p>`;
-        return;
       }
-      el.innerHTML = `
-        <table class="gaia"><thead><tr><th>Gaia DR3</th><th>G</th><th>BP−RP</th><th>Teff</th><th>uzaklık</th></tr></thead>
-        <tbody>${src.slice(0, 12).map((g, i) => `<tr class="pick" data-i="${i}">
-          <td>…${esc(String(g.source_id).slice(-7))}</td><td>${D.fmt(g.phot_g_mean_mag, 2)}</td><td>${D.fmt(g.bp_rp, 2)}</td>
-          <td>${g.teff_gspphot ? D.fmtInt(g.teff_gspphot) : "—"}</td><td>${D.fmt(g.sep_arcsec, 1)}″</td></tr>`).join("")}</tbody></table>
-        <p class="note">Bir satıra tıkla: o Gaia kaynağı için yıldız kartı açılır.</p>`;
-      el.querySelectorAll("tr.pick").forEach((tr) => tr.onclick = () => openGaiaStar(src[+tr.dataset.i]));
+      const rows = [];
+      const f = (k, v) => rows.push(`<dt>${k}</dt><dd>${v}</dd>`);
+      f("Kaynak", `Gaia DR3 ${esc(g.source_id)} <span class="src">${g.matched
+        ? `Hipparcos eşleşmesi${g.sep_arcsec > 3 ? `, 1991'den 2016'ya ${g.sep_arcsec >= 120 ? D.fmt(g.sep_arcsec / 60, 1) + "′" : D.fmt(g.sep_arcsec, 0) + "″"} kaymış` : ""}`
+        : `${D.fmt(g.sep_arcsec, 2)}″ uzakta`}</span>`);
+      if (g.phot_g_mean_mag != null) f("G kadir", D.fmt(g.phot_g_mean_mag, 3));
+      if (g.bp_rp != null) f("BP−RP", D.fmt(g.bp_rp, 3));
+      if (g.parallax != null) f("Paralaks", `${D.fmt(g.parallax, 3)} ± ${D.fmt(g.parallax_error, 3)} mas`);
+      if (g.radial_velocity != null) f("Dikine hız", `${D.fmt(g.radial_velocity, 1)} km/s`);
+      if (g.teff_gspphot != null) f("Teff (GSP-Phot)", `${D.fmtInt(g.teff_gspphot)} K`);
+      if (g.spectraltype_esphs) f("Tayf (ESP-HS)", esc(g.spectraltype_esphs));
+      el.innerHTML = `<dl class="facts">${rows.join("")}</dl>
+        <p class="note">Çok parlak yıldızlar (V &lt; 3) Gaia dedektörlerini doyurur; bu yüzden bazılarında Gaia parametreleri eksik ya da güvenilmezdir.</p>`;
     } catch (e) {
       el.innerHTML = `<p class="error">Gaia sorgusu başarısız: ${esc(e.message)}</p>`;
     }
+  }
+
+  /** Bir noktanın çevresindeki Gaia kaynakları: tıklanabilir tablo. */
+  function renderGaiaList(src, el) {
+    el.innerHTML = `
+      <table class="gaia"><thead><tr><th>Gaia DR3</th><th>G</th><th>BP−RP</th><th>Teff</th><th>uzaklık</th></tr></thead>
+      <tbody>${src.slice(0, 12).map((g, i) => `<tr class="pick" data-i="${i}">
+        <td>…${esc(String(g.source_id).slice(-7))}</td><td>${D.fmt(g.phot_g_mean_mag, 2)}</td><td>${D.fmt(g.bp_rp, 2)}</td>
+        <td>${g.teff_gspphot ? D.fmtInt(g.teff_gspphot) : "—"}</td><td>${D.fmt(g.sep_arcsec, 1)}″</td></tr>`).join("")}</tbody></table>
+      <p class="note">Bir satıra tıkla: o Gaia kaynağı için yıldız kartı açılır.</p>`;
+    el.querySelectorAll("tr.pick").forEach((tr) => tr.onclick = () => openGaiaStar(src[+tr.dataset.i]));
   }
 
   /** Gaia satırını yıldız kartı alan adlarına çevir (yalnızca var olanlar). */
@@ -547,11 +594,71 @@
   }
 
   // -------------------------------------------------------------- arama
+  /**
+   * Aranabilen her şey: adı ya da Bayer/Flamsteed adı olan yıldızlar (Türkçe ad, eş adlar,
+   * "α Cen" → "Alpha Centauri" / "Alfa Erboğa") ve takımyıldızlar (Türkçe, Latince, tamlayan, kısaltma).
+   */
+  function searchItems() {
+    const CN = (CONS && CONS.names) || {};
+    // "Proxima Centauri" → "Proxima Erboğa", "VY Canis Majoris" → "VY Büyük Köpek"
+    const gens = Object.entries(CN).filter(([abbr]) => D.CON_TR[abbr]).map(([abbr, n]) => [" " + n[1], D.CON_TR[abbr]]);
+    const turkish = (k) => { for (const [g, tr] of gens) if (k.endsWith(g)) return k.slice(0, -g.length) + " " + tr; return null; };
+    const items = [];
+    for (const s of STARS) {
+      const keys = [s.name, s.tr, ...(s.alias || [])];
+      keys.push(...keys.filter(Boolean).map(turkish));
+      const m = s.desig && s.desig.match(/^(.+?)\s+([A-Za-z]{2,3})$/);
+      if (s.desig) keys.push(s.desig);
+      if (m && CN[m[2]]) keys.push(`${m[1]} ${CN[m[2]][1]}`);
+      if (m && D.CON_TR[m[2]]) keys.push(`${m[1]} ${D.CON_TR[m[2]]}`);
+      if (!keys.some(Boolean)) continue;
+      // eşit eşleşmede önce adı olan, sonra parlak yıldız
+      items.push({ kind: "star", star: s, keys: keys.filter(Boolean), rank: (s.name ? 12 : 0) - Math.min(14, s.v ?? s.g ?? 14) });
+    }
+    const seen = new Set();
+    for (const [abbr, ra, dec] of (CONS && CONS.labels) || []) {
+      if (seen.has(abbr)) continue;
+      seen.add(abbr);
+      const n = CN[abbr] || [];
+      items.push({ kind: "con", abbr, ra, dec, keys: [D.CON_TR[abbr], n[0], n[1], abbr].filter(Boolean), rank: 20 });
+    }
+    return items;
+  }
+
+  /** Kartı açık yıldızı işaretle (gökyüzünde halka) ve yeniden çizdir. */
+  function select(s) {
+    selected = s;
+    try { aladin.view.requestRedraw(); } catch (_) { /* bir sonraki karede çizilir */ }
+  }
+
+  /** Takımyıldızı ortala ve kartında en parlak yıldızlarını listele. */
+  function showConstellation(c) {
+    select(null);
+    const n = ((CONS && CONS.names) || {})[c.abbr] || [];
+    const members = STARS.filter((s) => s.con === c.abbr && s.v != null).sort((a, b) => a.v - b.v);
+    // görüş alanı: ad noktasından en uzak parlak yıldızına göre
+    const far = members.filter((s) => s.v < 4.5).reduce((m, s) => Math.max(m, angSep(c.ra, c.dec, s.ra, s.dec)), 0);
+    const hid = revealBelowHorizon(c.ra, c.dec);
+    aladin.gotoRaDec(c.ra, c.dec);
+    aladin.setFoV(Math.max(25, Math.min(100, 2.6 * far || 45)));
+    const h = sky ? sky.altaz(c.ra, c.dec) : null;
+    const top = members.slice(0, 8);
+    const body = $("#panel-body");
+    body.innerHTML = `
+      <h2 style="margin:0 0 2px">${esc(D.CON_TR[c.abbr] || n[0] || c.abbr)}</h2>
+      <div class="ids">${esc([n[0], c.abbr, "takımyıldız"].filter(Boolean).join(" · "))}</div>
+      ${hid ? HORIZON_NOTE : ""}
+      ${h ? `<p class="muted">Şu an (${esc(sky.place.name)}): ${h.alt > 0 ? `ufkun ${D.fmt(h.alt, 0)}° üstünde, ${sky.dirName(h.az)} yönünde` : "ufkun altında, şu an görünmüyor"}.</p>` : ""}
+      ${top.length ? `<div class="section"><h3>En parlak yıldızları</h3><ul class="pick-list">${top.map((s, i) => `<li data-i="${i}">${esc(D.title(s))}<small>${esc([s.name ? s.desig : null, "V " + D.fmt(s.v, 2)].filter(Boolean).join(" · "))}</small></li>`).join("")}</ul></div>` : ""}`;
+    body.querySelectorAll("li[data-i]").forEach((li) => li.onclick = () => showStar(top[+li.dataset.i]));
+    body.parentElement.scrollTop = 0;
+  }
+
   function initSearch() {
     const input = $("#search-input"), list = $("#search-results");
-    let hits = [];
-    const norm = (x) => (x || "").toLocaleLowerCase("tr-TR").normalize("NFD").replace(/[̀-ͯ]/g, "");
-    const GREEK = { alpha: "α", alfa: "α", beta: "β", gamma: "γ", delta: "δ", epsilon: "ε", zeta: "ζ", eta: "η", theta: "θ", iota: "ι", kappa: "κ", lambda: "λ", mu: "μ", nu: "ν", xi: "ξ", omicron: "ο", pi: "π", rho: "ρ", sigma: "σ", tau: "τ", upsilon: "υ", phi: "φ", chi: "χ", psi: "ψ", omega: "ω" };
+    let hits = [], sel = 0, index = null;
+    const getIndex = () => index || (index = LichSearch.build(searchItems()));
+    const starHit = (s) => ({ kind: "star", star: s });
 
     function find(q) {
       q = q.trim();
@@ -559,40 +666,48 @@
       const coord = q.match(/^(-?\d+(?:\.\d+)?)[,\s]+([+-]?\d+(?:\.\d+)?)$/);
       if (coord) return [{ coord: [+coord[1], +coord[2]] }];
       const hip = q.match(/^hip\s*(\d+)$/i);
-      if (hip) { const s = byHip.get(+hip[1]); return s ? [s] : []; }
+      if (hip) { const s = byHip.get(+hip[1]); return s ? [starHit(s)] : []; }
       const hd = q.match(/^hd\s*(\d+)$/i);
-      if (hd) return STARS.filter((s) => s.hd === +hd[1]);
-      let nq = norm(q);
-      for (const [k, v] of Object.entries(GREEK)) nq = nq.replace(new RegExp("^" + k + "\\b"), v);
-      const out = [];
-      for (const s of STARS) {
-        const n = norm(s.name), dsg = norm(s.desig);
-        if ((n && n.startsWith(nq)) || (dsg && dsg.startsWith(nq))) out.push(s);
-        if (out.length >= 30) break;
+      if (hd) return STARS.filter((s) => s.hd === +hd[1]).map(starHit);
+      const gaia = q.match(/^gaia\s*(?:dr3)?\s*(\d{6,})$/i);
+      if (gaia) return STARS.filter((s) => s.gaia === gaia[1]).map(starHit);
+      return LichSearch.find(getIndex(), q, 10).map((r) => r.item);
+    }
+    function label(h) {
+      if (h.coord) return `Koordinata git <small>${h.coord[0]}°, ${h.coord[1]}°</small>`;
+      if (h.kind === "con") {
+        const n = ((CONS && CONS.names) || {})[h.abbr] || [];
+        return `${esc(D.CON_TR[h.abbr] || n[0] || h.abbr)}<small>${esc([n[0], "takımyıldız"].filter(Boolean).join(" · "))}</small>`;
       }
-      if (out.length < 8) for (const s of STARS) {
-        if (out.includes(s)) continue;
-        if ((s.name && norm(s.name).includes(nq)) || (s.desig && norm(s.desig).includes(nq))) out.push(s);
-        if (out.length >= 30) break;
-      }
-      return out.slice(0, 10);
+      const s = h.star;
+      const sub = [s.tr && s.tr !== s.name ? s.tr : null, s.name ? s.desig : null,
+        s.v != null ? "V " + D.fmt(s.v, 2) : s.g != null ? "G " + D.fmt(s.g, 1) : null];
+      return `${esc(D.title(s))}<small>${esc(sub.filter(Boolean).join(" · "))}</small>`;
     }
     function render() {
       if (!hits.length) { list.hidden = true; return; }
-      list.innerHTML = hits.map((h, i) => h.coord
-        ? `<li data-i="${i}">Koordinata git <small>${h.coord[0]}°, ${h.coord[1]}°</small></li>`
-        : `<li data-i="${i}">${esc(D.title(h))}<small>${esc([h.name ? h.desig : null, "V " + D.fmt(h.v, 2)].filter(Boolean).join(" · "))}</small></li>`).join("");
+      list.innerHTML = hits.map((h, i) => `<li data-i="${i}" role="option"${i === sel ? ' aria-selected="true"' : ""}>${label(h)}</li>`).join("");
       list.hidden = false;
     }
     function pick(h) {
       list.hidden = true;
       if (!h) return;
-      if (h.coord) { aladin.gotoRaDec(h.coord[0], h.coord[1]); aladin.setFoV(2); showPoint(h.coord[0], h.coord[1]); }
-      else showStar(h);
+      if (h.coord) {
+        revealBelowHorizon(h.coord[0], h.coord[1]);
+        aladin.gotoRaDec(h.coord[0], h.coord[1]); aladin.setFoV(2); showPoint(h.coord[0], h.coord[1]);
+      } else if (h.kind === "con") showConstellation(h);
+      else showStar(h.star);
     }
-    input.addEventListener("input", () => { hits = find(input.value); render(); });
+    input.addEventListener("focus", () => setTimeout(getIndex, 0), { once: true });   // dizin ilk odakta kurulur
+    input.addEventListener("input", () => { hits = find(input.value); sel = 0; render(); });
+    input.addEventListener("keydown", (e) => {
+      if (list.hidden || !hits.length || (e.key !== "ArrowDown" && e.key !== "ArrowUp")) return;
+      e.preventDefault();
+      sel = (sel + (e.key === "ArrowDown" ? 1 : hits.length - 1)) % hits.length;
+      render();
+    });
     list.addEventListener("mousedown", (e) => { const li = e.target.closest("li"); if (li) pick(hits[+li.dataset.i]); });
-    $("#search").addEventListener("submit", (e) => { e.preventDefault(); pick(hits[0]); });
+    $("#search").addEventListener("submit", (e) => { e.preventDefault(); pick(hits[sel] || find(input.value)[0]); });
     input.addEventListener("blur", () => setTimeout(() => (list.hidden = true), 150));
     document.querySelectorAll("[data-goto]").forEach((b) => b.onclick = () => { const s = STARS.find((x) => x.name === b.dataset.goto); if (s) showStar(s); });
   }
@@ -956,6 +1071,7 @@
     $("#btn-locate").onclick = locate;
     window.lichspec = {
       aladin, STARS, showStar, renderSolve, sky, data: LichData,
+      search: (q) => LichSearch.find(LichSearch.build(searchItems()), q, 10).map((r) => (r.item.kind === "con" ? r.item.abbr : D.title(r.item.star))),
       get gaiaMode() { return gaiaMode; },
       get imagery() { return { wide: wideFailed ? "DSS2 (Mellinger unreachable)" : "Mellinger", detail: detailOn }; },
       get lastSolve() { return lastSolve; },

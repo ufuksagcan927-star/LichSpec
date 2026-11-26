@@ -25,13 +25,14 @@ constellations are in it.
 | | |
 |---|---|
 | ![The sky seen from the ground: horizon, compass points and constellation figures with Turkish names](docs/screenshots/sky.jpg) | ![Gaia DR3 stars streamed into the open cluster M67, with a star card](docs/screenshots/gaia-m67.jpg) |
-| **From the ground.** The sky as it looks from where you stand right now: horizon, compass points, constellation figures with Turkish names. 15,397 bright stars (Hipparcos V < 7) modelled offline with Gaia DR3 parameters and proper names; clickable and searchable. | **All 1.8 billion Gaia DR3 stars.** Zoom in and the brightest stars of the visible field stream in; the card shows temperature, gravity, chemistry, FLAME mass/age, radial velocity. |
+| **From the ground.** The sky as it looks from where you stand right now: horizon, compass points, constellation figures with Turkish names. 15,504 stars modelled offline with Gaia DR3 parameters and proper names: every Hipparcos star brighter than V 7, plus well-known fainter ones (Proxima Centauri, Barnard's Star, Wolf 359, TRAPPIST-1); clickable and searchable by name, typos included. | **All 1.8 billion Gaia DR3 stars.** Zoom in and the brightest stars of the visible field stream in; the card shows temperature, gravity, chemistry, FLAME mass/age, radial velocity. |
 | ![Star card for Betelgeuse over Orion, with narration and measured values](docs/screenshots/star-card.jpg) | ![A night photo of Orion solved in the browser: star names and the constellation figure drawn on the photo](docs/screenshots/photo-solve.jpg) |
 | **Star card.** Every value names its source. Draugr (template version) narrates only what was measured; Poltergeist (preview) turns [M/H] into H/He/metal mass fractions. | **Photo → stars.** Night photos (JPG/PNG): Phobetor finds the stars in the browser and the star pattern is matched to the sky; star names and constellation figures are drawn on the photo (shown: the synthetic stacked-camera test photo). FITS images with a WCS header are solved too (matches astropy to 1e-10″). |
 
 ### How it works
 
-- **One view, from the ground.** The sky is drawn from inside, the way a planetarium does it (stereographic projection), with the observer's horizon, ground and compass points worked out for their place and time, and the constellation figures with Turkish names (`web/js/sky.js`).
+- **One view, from the ground.** The sky is drawn from inside, the way a planetarium does it (stereographic projection), with the observer's horizon, ground and compass points worked out for their place and time, and the constellation figures with Turkish names (`web/js/sky.js`). Dragging turns the view in altitude and azimuth, the way you turn your head, so it never flips when it passes the zenith; the ground below the horizon is opaque.
+- **Search** (`web/js/search.js`) runs offline over every star and constellation name: proper and Turkish names (`Kutup Yıldızı`, `Avcı`), Bayer letters in Greek or spelled out (`α Cen`, `Alfa Erboğa`), Flamsteed numbers, HIP, HD, Gliese and Gaia DR3 ids, with one or two typos forgiven (`proxima centuri`, `betelguese`). A star below the horizon is shown with the ground hidden.
 - **Sky imagery** streams as HiPS tiles through [Aladin Lite v3](https://aladin.cds.unistra.fr/AladinLite/): Axel Mellinger's all-sky photograph when zoomed out, DSS2 fading in as you zoom; nothing is embedded in the site.
 - **Gaia DR3** comes straight from the browser: CDS's Gaia HiPS catalogue when it answers, otherwise one "brightest 3,000 in this field" query to a VizieR mirror (CDS, Harvard CfA or IDIA, whichever answers first). Field size on that path is capped by galactic latitude, because the query scans every star in the circle.
 - **Phobetor in the browser.** The star detector trained on Euclid Q1 is exported to ONNX without PyTorch (`tools/export_phobetor_onnx.py`, checked against an independent numpy forward pass) and runs in the visitor's browser with onnxruntime-web, on WebGPU when available, otherwise WebAssembly (`web/js/phobetor.js`). Stars so bright that their core is clipped at 255 are measured from the clipped core (Phobetor never saw such stars in Euclid images). Nothing is uploaded anywhere.
@@ -63,7 +64,7 @@ The name comes from the pulsar **Lich (PSR B1257+12)**, the first star found to 
 
 ## Data and credits
 
-Gaia data © ESA/Gaia/DPAC (CC BY-SA 3.0 IGO); the Hipparcos Catalogue (ESA 1997); star names and constellation figures from d3-celestial (BSD-3-Clause; figures after the IAU and Sky & Telescope charts); Aladin Lite, VizieR and HiPS by CDS, Strasbourg. Details and full notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Gaia data © ESA/Gaia/DPAC (CC BY-SA 3.0 IGO); the Hipparcos Catalogue (ESA 1997) and its new reduction (van Leeuwen 2007); star names, constellation figures and boundaries from d3-celestial (BSD-3-Clause; figures after the IAU and Sky & Telescope charts); Aladin Lite, VizieR and HiPS by CDS, Strasbourg. Details and full notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Licence
 

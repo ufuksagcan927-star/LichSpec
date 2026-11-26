@@ -275,10 +275,14 @@
     return rows.map(fromVizier).filter((g) => g.ra != null && g.dec != null);
   }
 
-  /** Tek bir Gaia kaynağının tüm ölçülmüş parametreleri. ra/dec biliniyorsa sorgu hızlanır. */
-  async function source(id, ra, dec) {
+  /**
+   * Tek bir Gaia kaynağının tüm ölçülmüş parametreleri. ra/dec biliniyorsa sorgu hızlanır;
+   * rArcsec: kaynağın o noktadan en fazla ne kadar uzakta olabileceği (Hipparcos'un 1991
+   * konumundan aranırken öz hareketi büyük yıldızlar dakikalarca kaymış olabilir).
+   */
+  async function source(id, ra, dec, rArcsec = 5) {
     if (mode === "server") return (await getJson(`api/gaia/source/${id}`)).source;
-    const pos = ra != null && dec != null ? { "-c": coo(ra, dec), "-c.rs": "5" } : {};
+    const pos = ra != null && dec != null ? { "-c": coo(ra, dec), "-c.rs": String(rArcsec) } : {};
     const q = (table) => vizier({ "-source": table, ...pos, "Source": String(id), "-out.all": "1", "-out.max": "1" });
     const [main, par] = await Promise.all([q(T_MAIN), q(T_PARAM).catch(() => [])]);
     if (!main.length) throw new Error("kaynak bulunamadı");
