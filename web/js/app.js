@@ -535,14 +535,21 @@
     try {
       let g = null;
       if (star && star.gaia) {
-        // Hipparcos–Gaia DR3 eşleşmesi katalogda var: kaynak doğrudan kimliğiyle alınır. Hipparcos konumu
-        // 1991 çağında; öz hareketi büyük yıldızlar 2016'ya kadar dakikalarca kaydı (Barnard Yıldızı 4′),
-        // bu yüzden kimlik 10′ içinde aranır.
+        // Hipparcos–Gaia DR3 eşleşmesi katalogda var: kaynak doğrudan kimliğiyle alınır. Kimliğin taşıdığı
+        // konumun (~2000) çevresinde aranır; yarıçap hücre payı (60″) artı yıldızın 1991'den o konuma
+        // kaymasının iki katı, çünkü öz hareketi büyük yıldızlar 2016'ya kadar yine kayar (Barnard Yıldızı:
+        // 1991'den 2016'ya 4,3′). 10′'lik sabit bir daire VizieR'de yarım dakikayı aşabiliyordu.
         try {
-          g = await LichData.source(star.gaia, ra, dec, 600);
+          const [ira, idec] = LichData.idPosition(star.gaia);
+          const r = Math.min(600, 60 + 2 * angSep(ra, dec, ira, idec) * 3600);
+          g = await LichData.source(star.gaia, ira, idec, Math.round(r));
           g.sep_arcsec = angSep(ra, dec, g.ra, g.dec) * 3600;
           g.matched = true;
-        } catch (_) { g = null; /* yakındaki en parlak kaynağa bakılır */ }
+        } catch (e) {
+          // Ağ hatasında yanındaki başka bir yıldızı göstermektense hata yazılır; kimlik orada yoksa en parlak komşuya bakılır.
+          if (!/bulunamadı/.test(e.message)) throw e;
+          g = null;
+        }
       }
       if (!g) {
         const src = await LichData.cone(ra, dec, rArcsec);
