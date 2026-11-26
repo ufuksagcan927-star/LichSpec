@@ -752,6 +752,15 @@
       matched.add(Math.round(p.x * 8) + "," + Math.round(p.y * 8));
       j.stars.push({ ...s, src: "bright", x: p.x, y: p.y });
     }
+    // En parlak yıldızların çekirdeği doyunca Phobetor onları bazen kaçırır ya da halesinde bulur. Çözüm
+    // belli olduğu için fotoğrafa düşen en parlak yıldızlar (V ≤ 1,5) eşleşmemişse hesaplanan yerinde
+    // gösterilir (kesik çizgili halka). Daha sönükler gösterilmez: ağaç ya da bina arkasında kalmış olabilirler.
+    const have = new Set(j.stars.map((s) => s.hip));
+    for (const s of STARS) {
+      if (!(s.v <= 1.5) || have.has(s.hip)) continue;
+      const p = cam.world2pix(s.ra, s.dec);
+      if (p && p[0] >= 0 && p[1] >= 0 && p[0] <= W - 1 && p[1] <= H - 1) j.stars.push({ ...s, src: "bright", x: p[0], y: p[1], predicted: true });
+    }
     j.stars.sort((a, b) => (a.v ?? 99) - (b.v ?? 99));
     j.detections = ph.det.map((d) => ({ ...d, matched: matched.has(Math.round(d.x * 8) + "," + Math.round(d.y * 8)) }));
     // takımyıldız çizgileri ve adları (düzlemsel izdüşümde büyük daireler doğru çizgidir)
@@ -840,7 +849,7 @@
         ? (i < 60 ? (mag < 1 ? 13 : mag < 2 ? 10.5 : mag < 3 ? 8.5 : mag < 4 ? 7 : 5.5) : 3.2) * Math.max(0.5, W / 1000)
         : Math.max(5, Math.min(22, 18 - 1.1 * (mag ?? 14))) * k;
       const label = it.src === "bright" && i < 15 ? `<text x="${(px + r + 3).toFixed(1)}" y="${(py + fs * 0.35).toFixed(1)}" font-size="${fs.toFixed(1)}">${esc(D.title(it))}</text>` : "";
-      return `<circle class="${it.src}${photo && i >= 60 ? " minor" : ""}" data-i="${i}" cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${r.toFixed(1)}"></circle>${label}`;
+      return `<circle class="${it.src}${photo && i >= 60 ? " minor" : ""}${it.predicted ? " predicted" : ""}" data-i="${i}" cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${r.toFixed(1)}"></circle>${label}`;
     }).join("");
     svg.innerHTML = marks;
 
@@ -854,7 +863,7 @@
       list.innerHTML = items.map((it, i) => {
         const mag = it.src === "bright" ? `V ${D.fmt(it.v, 2)}` : `G ${D.fmt(it.phot_g_mean_mag, 2)}`;
         const extra = it.src === "bright" ? [it.sp, it.desig && it.name ? it.desig : null].filter(Boolean).join(" · ") : [it.teff_gspphot ? `${D.fmtInt(it.teff_gspphot)} K` : null, it.spectraltype_esphs].filter(Boolean).join(" · ");
-        return `<li data-i="${i}"><span>${esc(solvedStarTitle(it))}</span><span class="kind ${it.src}">${it.src === "bright" ? "LichSpec" : "Gaia"}</span><small>${mag}${extra ? " · " + esc(extra) : ""}</small></li>`;
+        return `<li data-i="${i}"><span>${esc(solvedStarTitle(it))}</span><span class="kind ${it.src}">${it.src === "bright" ? "LichSpec" : "Gaia"}</span><small>${mag}${extra ? " · " + esc(extra) : ""}${it.predicted ? " · yeri hesaplandı (Phobetor bulamadı)" : ""}</small></li>`;
       }).join("") || `<li><small>Görüntü alanında tanınan yıldız yok.</small></li>`;
     }
 
@@ -881,7 +890,8 @@
         : j.radius_deg * 2 >= 1 ? `${D.fmt(j.radius_deg * 2, 2)}°` : `${D.fmt(j.radius_deg * 120, 1)}′`;
       meta.push(`<span>Merkez <b>${hms(j.center.ra)} ${dms(j.center.dec)}</b></span>`);
       meta.push(`<span>${photo ? "Görüş alanı" : "Alan çapı"} <b>${fovTxt}</b></span>`);
-      meta.push(photo ? `<span>Tanınan: <b>${j.stars.length.toLocaleString("tr-TR")}</b> yıldız${j.stars.length > items.length ? ` (listede en parlak ${items.length} tanesi)` : ""}</span>`
+      const nPred = photo ? j.stars.filter((s) => s.predicted).length : 0, nRec = j.stars.length - nPred;
+      meta.push(photo ? `<span>Tanınan: <b>${nRec.toLocaleString("tr-TR")}</b> yıldız${j.stars.length > items.length ? ` (listede en parlak ${items.length} tanesi)` : ""}${nPred ? ` · ${nPred} parlak yıldız hesaplanan yerinde` : ""}</span>`
         : `<span>Ölçek <b>${D.fmt(j.pixscale_arcsec, 3)}″/piksel</b></span>`);
       if (!photo) meta.push(`<span>Tanınan: <b>${j.stars.length}</b> parlak yıldız, <b>${j.gaia.length}</b> Gaia kaynağı${j.gaia_radius_deg ? ` (Gaia: görüntünün ortasındaki ${D.fmt(j.gaia_radius_deg * 2, 2)}° çaplı alan)` : ""}</span>`);
       meta.push(`<span>Çözüm: <b>${j.source === "fits-wcs" ? "FITS başlığındaki WCS" : photo ? "yıldız deseni eşleştirme (tarayıcında)" : "Astrometry.net"}</b>${photo ? ` · ortalama sapma ${D.fmt(j.solver.rms, 1)} piksel` : ""}</span>`);

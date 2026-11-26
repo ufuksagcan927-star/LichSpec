@@ -9,9 +9,10 @@ Test photos for the in-browser photo solver (tools/photo_check.js).
    noise, in-camera blur, sRGB tone curve, JPEG compression, a dark foreground and trailed stars in some,
    plus a stacked camera photo in which every star brighter than about V 5 is clipped at 255.
    The true pointing is known, so the solution can be checked exactly.
-2. With --real: real sky images. Mellinger all-sky photographic mosaic cut out by the CDS hips2fits
-   service in gnomonic projection (wide fields like a phone or camera), and a few freely licensed camera
-   photos of Orion from Wikimedia Commons (downloaded only for the test, never committed).
+2. With --real: freely licensed real night-sky photos from Wikimedia Commons (downloaded only for the
+   test, never committed): four fixed photos of Orion, plus the first few photo results of a Commons
+   search for each of five constellations (the search results change over time; every source is printed).
+   Only the target is known for these, so the check is that the solution lands near the constellation.
 
 Writes <out-dir>/cases.json: [{file, kind, expect: {ra, dec, fov?, within_deg}, must_solve}].
 """
@@ -48,14 +49,6 @@ SYNTH = {
                              kind="synthetic camera stack"),
 }
 
-# Mellinger cut-outs: (name, ra, dec, fov_deg along the long side, rotation, width, height)
-MELLINGER = [
-    ("mellinger_orion_60", 84.0, 2.0, 60, 15, 1024, 768),
-    ("mellinger_cygnus_90", 305.0, 40.0, 90, -30, 1024, 768),
-    ("mellinger_sco_35", 250.0, -28.0, 35, 0, 768, 1024),
-    ("mellinger_uma_70", 170.0, 55.0, 70, 160, 1024, 683),
-]
-
 # Freely licensed camera photos of Orion on Wikimedia Commons (resized by Commons to 1600 px).
 COMMONS = [
     "Orion_Constellation1.jpg",
@@ -63,6 +56,23 @@ COMMONS = [
     "Constellation_Orion_from_Grand_Canyon.jpg",
     "2012-02-21_21-01-50-orion-78f-12d-11o.jpg",
 ]
+
+
+NOTES = {
+    "2012-02-21_21-01-50-orion-78f-12d-11o.jpg":
+        "not a single photo: the same field twice side by side, with constellation lines drawn on the right copy",
+}
+
+# Commons search: (search text, centre of the constellation (ra, dec), allowed distance in degrees)
+SEARCH = [
+    ("Orion constellation night sky", 84.0, 0.0, 35),
+    ("Big Dipper night sky", 184.0, 56.0, 35),
+    ("Cassiopeia constellation night sky", 15.0, 60.0, 35),
+    ("Scorpius constellation night sky", 255.0, -30.0, 35),
+    ("Cygnus Milky Way night sky", 305.0, 40.0, 40),
+]
+NOT_A_PHOTO = ("chart", "map", "diagram", "drawing", "illustration", "atlas", "sketch", "painting", "stamp",
+               "logo", "plate", "uranometria", "engraving", "poster", "label", "annotated", "outline", "lines")
 
 
 def load_catalog():
@@ -150,31 +160,52 @@ def main():
                           expect=dict(ra=c["ra"], dec=c["dec"], fov=c["hfov"], within_deg=0.5)))
         print("made", name)
     if "--real" in sys.argv:
-        for name, ra, dec, fov, rot, w, h in MELLINGER:
-            q = urllib.parse.urlencode(dict(hips="CDS/P/Mellinger/color", width=w, height=h, fov=fov, projection="TAN",
-                                            coordsys="icrs", ra=ra, dec=dec, rotation_angle=rot, format="jpg"))
+        seen = set()
+
+        def add_commons(fname, thumb_url, kind, ra, dec, within):
+            if fname.replace(" ", "_") in seen:
+                return
+            seen.add(fname.replace(" ", "_"))
             try:
-                data = fetch("https://alasky.cds.unistra.fr/hips-image-services/hips2fits?" + q, report=True)
+                data = fetch(thumb_url)
                 Image.open(io.BytesIO(data)).verify()
-                (out / f"{name}.jpg").write_bytes(data)
-                cases.append(dict(file=f"{name}.jpg", kind="real sky (Mellinger via hips2fits)", must_solve=True,
-                                  expect=dict(ra=ra, dec=dec, fov=fov, within_deg=1.0)))
-                print("fetched", name, len(data), "bytes")
-            except Exception as e:  # service down: report, the check skips it
-                print("could not fetch", name, e)
-        for fname in COMMONS:
-            try:
-                data = fetch("https://commons.wikimedia.org/wiki/Special:FilePath/" + fname + "?width=1600")
-                Image.open(io.BytesIO(data)).verify()
-                local = "commons_" + fname.replace("/", "_")
-                (out / local).write_bytes(data)
-                # only the target is known: Orion's centre (Alnilam), within 30 degrees
-                cases.append(dict(file=local, kind="real camera photo (Wikimedia Commons)", must_solve=False,
-                                  source="https://commons.wikimedia.org/wiki/File:" + fname,
-                                  expect=dict(ra=84.05, dec=-1.2, within_deg=30)))
-                print("fetched", fname, len(data), "bytes")
-            except Exception as e:
+            except Exception as e:  # missing file or service down: report, the check skips it
                 print("could not fetch", fname, e)
+                return
+            local = "commons_" + "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in fname)
+            (out / local).write_bytes(data)
+            cases.append(dict(file=local, kind=kind, must_solve=False,
+                              source="https://commons.wikimedia.org/wiki/File:" + fname.replace(" ", "_"),
+                              note=NOTES.get(fname.replace(" ", "_"), ""),
+                              expect=dict(ra=ra, dec=dec, within_deg=within)))
+            print("fetched", fname, len(data), "bytes")
+
+        for fname in COMMONS:
+            # only the target is known: Orion's centre (Alnilam), within 30 degrees
+            add_commons(fname, "https://commons.wikimedia.org/wiki/Special:FilePath/" + fname + "?width=1600",
+                        "real camera photo (Wikimedia Commons)", 84.05, -1.2, 30)
+        for text, ra, dec, within in SEARCH:
+            q = urllib.parse.urlencode(dict(action="query", format="json", generator="search", gsrsearch=text,
+                                            gsrnamespace=6, gsrlimit=20, prop="imageinfo",
+                                            iiprop="url|size|mime", iiurlwidth=1600))
+            try:
+                pages = json.loads(fetch("https://commons.wikimedia.org/w/api.php?" + q))["query"]["pages"]
+            except Exception as e:
+                print("Commons search failed:", text, e)
+                continue
+            got = 0
+            for pg in sorted(pages.values(), key=lambda p: p.get("index", 99)):
+                ii = (pg.get("imageinfo") or [{}])[0]
+                fname = pg["title"].split(":", 1)[1]
+                if ii.get("mime") != "image/jpeg" or min(ii.get("width", 0), ii.get("height", 0)) < 900:
+                    continue
+                if any(w in fname.lower() for w in NOT_A_PHOTO) or not ii.get("thumburl"):
+                    continue
+                before = len(cases)
+                add_commons(fname, ii["thumburl"], f"real photo, Commons search '{text}'", ra, dec, within)
+                got += len(cases) > before
+                if got >= 3:
+                    break
     (out / "cases.json").write_text(json.dumps(cases, indent=1), encoding="utf-8")
 
 

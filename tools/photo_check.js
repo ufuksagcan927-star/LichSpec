@@ -55,7 +55,7 @@ function brightStarsInFrame(page) {
     if (!s || s.status !== "solved" || !s.cam) return null;
     const c = s.cam, W = s.width, H = s.height;
     const cam = new LichSolve.Camera(c.R, c.f, c.cx, c.cy, c.k1, c.k2, c.rpix);
-    const matched = new Set(s.stars.map((x) => x.hip));
+    const matched = new Set(s.stars.filter((x) => !x.predicted).map((x) => x.hip));
     const out = [];
     for (const st of window.lichspec.STARS) {
       if (st.v == null || st.v > 3.5) continue;
@@ -113,7 +113,8 @@ function brightStarsInFrame(page) {
         if (err.classList.contains("error") && !err.hidden) return { error: err.innerText };
         return {
           status: s.status, phobetor: s.phobetor, solver: s.solver, center: s.center, fov: s.fov, size: [s.width, s.height],
-          stars: (s.stars || []).length, names: (s.stars || []).slice(0, 8).map((x) => x.name || x.desig || "HIP " + x.hip),
+          stars: (s.stars || []).filter((x) => !x.predicted).length,
+          names: (s.stars || []).slice(0, 8).map((x) => (x.name || x.desig || "HIP " + x.hip) + (x.predicted ? " (predicted)" : "")),
           constellations: s.cons ? s.cons.labels.map((l) => l[0]) : [], meta: document.querySelector("#solve-meta").innerText.replace(/\s*\n\s*/g, " | "),
         };
       });
@@ -135,6 +136,7 @@ function brightStarsInFrame(page) {
     console.log(`- ${ok ? "OK  " : c.must_solve ? "FAIL" : "miss"} ${c.file} [${c.kind}] ${secs} s | ${ph} | ${where}`);
     if (r.names && r.names.length) console.log(`      stars: ${r.names.join(", ")} | constellations: ${r.constellations.join(", ")}`);
     if (c.source) console.log(`      source: ${c.source}`);
+    if (c.note) console.log(`      note: ${c.note}`);
     if (r.status === "solved") {
       const b = await brightStarsInFrame(page);
       if (b && b.length) {

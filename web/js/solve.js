@@ -546,14 +546,16 @@
   function polish(ctx, cam0) {
     const { W, H, det } = ctx;
     const diag = Math.hypot(W, H);
-    let cam = cam0, radius = Math.max(3, 0.012 * diag), result = null;
+    let cam = cam0, radius = Math.max(3, 0.012 * diag), result = null, prevRms = Infinity;
     const nDet = Math.min(det.length, 400);
-    for (let it = 0; it < 6; it++) {
+    for (let it = 0; it < 8; it++) {
       const m = matchAll(ctx, cam, 6.5, radius, nDet);
       if (m.pairs.length < 4) break;
+      // Üçgenden gelen ilk çözümün odağı birkaç yüzde kaymış olabilir: önce yalnızca yön ve odak,
+      // eşleşmeler oturunca mercek bozulması, en son optik merkez serbest bırakılır.
       const free = [];
-      if (m.pairs.length >= 10) free.push("k1");
-      if (m.pairs.length >= 30) free.push("k2", "cx", "cy");
+      if (prevRms < 3 && m.pairs.length >= 10) free.push("k1");
+      if (prevRms < 1.5 && m.pairs.length >= 30) free.push("k2", "cx", "cy");
       const fit = refit(ctx, cam, m.pairs, free);
       // akıl dışı bozulma ya da merkez kaymasını reddet
       const c = fit.cam;
@@ -564,10 +566,60 @@
         cam = fit2.cam; result = { pairs: m.pairs, rms: fit2.rms };
       } else { cam = c; result = { pairs: m.pairs, rms: fit.rms }; }
       radius = Math.max(2, Math.min(radius, 4 * result.rms + 1.5));
+      prevRms = result.rms;
     }
     const m = matchAll(ctx, cam, 6.5, radius, nDet);
     const logp = significance(ctx, m.pairs.length, m.nCat, radius, nDet);
     return { cam, pairs: m.pairs, radius, logp, rms: result ? result.rms : NaN };
+  }
+
+  /**
+   * Çizgiler (uçak ve uydu izleri, fotoğrafa çizilmiş çizgiler, iki fotoğrafı ayıran kenar) birkaç piksel
+   * arayla dizilmiş ve çoğu zaman yıldızlardan parlak ölçülen tespitler verir. (1) En az iki komşusu çok
+   * yakın olan tespitler; (2) en parlak 40 tespitten en az 6'sının ±0,8 piksel içinde dizildiği doğruların
+   * üstündeki tespitler sıranın sonuna alınır: üçgen kurmakta kullanılmazlar, doğrulamada yine sayılırlar.
+   * Rastgele 40 yıldızdan 6'sının böyle dizilme olasılığı yaklaşık %1'dir.
+   */
+  function demoteChains(det, W, H) {
+    const rc = Math.max(4, 0.008 * Math.max(W, H)), cell = rc;
+    const grid = new Map();
+    const key = (gx, gy) => gx * 100003 + gy;
+    det.forEach((d, i) => {
+      const k = key(Math.floor(d.x / cell), Math.floor(d.y / cell));
+      if (!grid.has(k)) grid.set(k, []);
+      grid.get(k).push(i);
+    });
+    const late = new Uint8Array(det.length);
+    det.forEach((d, i) => {
+      const gx = Math.floor(d.x / cell), gy = Math.floor(d.y / cell);
+      let n = 0;
+      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+        for (const j of grid.get(key(gx + a, gy + b)) || []) {
+          if (j !== i && Math.hypot(det[j].x - d.x, det[j].y - d.y) <= rc) n++;
+        }
+      }
+      if (n >= 2) late[i] = 1;
+    });
+    for (let round = 0; round < 8; round++) {
+      const top = [];
+      for (let i = 0; i < det.length && top.length < 40; i++) if (!late[i]) top.push(i);
+      let best = null, bestN = 5;
+      for (let a = 0; a < top.length; a++) for (let b = a + 1; b < top.length; b++) {
+        const p = det[top[a]], q = det[top[b]];
+        const dx = q.x - p.x, dy = q.y - p.y, L = Math.hypot(dx, dy);
+        if (L < 2 * rc) continue;
+        const nx = -dy / L, ny = dx / L, c = nx * p.x + ny * p.y;
+        let n = 0;
+        for (const t of top) if (Math.abs(nx * det[t].x + ny * det[t].y - c) <= 0.8) n++;
+        if (n > bestN) { bestN = n; best = [nx, ny, c]; }
+      }
+      if (!best) break;
+      const [nx, ny, c] = best;
+      det.forEach((d, i) => { if (Math.abs(nx * d.x + ny * d.y - c) <= 1.2) late[i] = 1; });
+    }
+    const keep = [], rest = [];
+    det.forEach((d, i) => (late[i] ? rest : keep).push(d));
+    return keep.concat(rest);
   }
 
   /**
@@ -577,7 +629,7 @@
   function solve(catalog, detections, W, H, opts = {}) {
     const t0 = Date.now();
     const limit = opts.timeLimitMs || 45000;
-    const det = detections.slice().sort((a, b) => b.flux - a.flux);
+    const det = demoteChains(detections.slice().sort((a, b) => b.flux - a.flux), W, H);
     if (det.length < 5) return { ok: false, reason: "few_stars", nDet: det.length };
     const N = Math.min(opts.nTriangle || 12, det.length);
     const ctx = { cat: catalog, det, W, H, N };

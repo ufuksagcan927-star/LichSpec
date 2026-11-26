@@ -359,7 +359,52 @@
       d.flux = Math.max(d.flux, flux);
       d.satArea = n;
     }
-    return det.filter((_, i) => keep[i]);
+    const out = det.filter((_, i) => keep[i]);
+    // Phobetor Euclid'de böyle büyük doymuş diskler görmedi; en parlak yıldızları bazen kaçırır ya da
+    // halesinin kenarında bulur. Hiçbir tespitin düşmediği yuvarlak doymuş bölgeler de yıldız sayılır
+    // (çekirdeğin ağırlık merkezinde); büyük bir doymuş bölgenin halesindeki doymamış tespitler atılır.
+    const blobs = [];
+    for (let q0 = 0; q0 < W * H; q0++) {
+      if (!sat[q0] || owner[q0]) continue;
+      id++;
+      const sx0 = q0 % W, sy0 = (q0 / W) | 0;
+      let n = 0, sx = 0, sy = 0, edge = false, big = false;
+      stack.length = 0;
+      stack.push(q0);
+      owner[q0] = id;
+      const px = [];
+      while (stack.length) {
+        const q = stack.pop(), x = q % W, y = (q / W) | 0;
+        n++; sx += x; sy += y; px.push(x, y);
+        if (x === 0 || y === 0 || x === W - 1 || y === H - 1) edge = true;
+        for (let k = 0; k < 4; k++) {
+          const xn = x + (k === 0 ? 1 : k === 1 ? -1 : 0), yn = y + (k === 2 ? 1 : k === 3 ? -1 : 0);
+          if (xn < 0 || yn < 0 || xn >= W || yn >= H) continue;
+          if (Math.abs(xn - sx0) > 60 || Math.abs(yn - sy0) > 60) { big = true; continue; }
+          const qn = yn * W + xn;
+          if (!sat[qn] || owner[qn]) continue;
+          owner[qn] = id;
+          stack.push(qn);
+        }
+      }
+      if (n < 3 || edge || big) continue;
+      const cx = sx / n, cy = sy / n;
+      let r2 = 0;
+      for (let t = 0; t < px.length; t += 2) r2 = Math.max(r2, (px[t] - cx) ** 2 + (px[t + 1] - cy) ** 2);
+      if (n < 0.35 * Math.PI * Math.max(1, r2)) continue;           // yuvarlak değil: lamba, çizgi, ışık izi
+      const R = Math.min(40, Math.ceil(3 + 2.5 * Math.sqrt(n / Math.PI)));
+      let flux = 0;
+      for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+        if (dx * dx + dy * dy > R * R) continue;
+        const x = Math.round(cx) + dx, y = Math.round(cy) + dy;
+        if (x < 0 || y < 0 || x >= W || y >= H) continue;
+        flux += L[y * W + x] - bg[y * W + x];
+      }
+      blobs.push({ x: cx, y: cy, score: 0, flux, sat: true, satArea: n, clipped: true });
+    }
+    const all = out.concat(blobs);
+    const halos = all.filter((d) => d.sat && d.satArea >= 12).map((d) => [d.x, d.y, 3 + 2.5 * Math.sqrt(d.satArea / Math.PI), d.flux]);
+    return halos.length ? all.filter((d) => d.sat || !halos.some(([x, y, r, f]) => d.flux < f && Math.hypot(d.x - x, d.y - y) < r)) : all;
   }
 
   // ------------------------------------------------------------------ EXIF (odak, tarih)
