@@ -50,6 +50,7 @@ TABLES = [
     ("VII/284", "Galactic supernova remnants (Green 2019)"),
     ("VII/220A/barnard", "Barnard's dark objects (Barnard 1927)"),
     ("VII/20", "Sharpless HII regions (Sharpless 1959)"),
+    ("VI/42", "Constellation boundaries in B1875 coordinates (Roman 1987)"),
 ]
 FILTER_PGC = {"J/ApJ/944/94/table2"}
 
