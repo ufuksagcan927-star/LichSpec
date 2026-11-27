@@ -33,23 +33,25 @@ OPENNGC = "https://raw.githubusercontent.com/mattiaverga/OpenNGC/master/database
 # (VizieR id, what it is). A catalogue id without a table name fetches all its tables.
 TABLES = [
     ("B/psr/psr", "ATNF Pulsar Catalogue (Manchester+ 2005), current version"),
-    ("J/ApJS/212/6", "McGill Online Magnetar Catalog (Olausen & Kaspi 2014)"),
-    ("J/A+A/587/A61", "BlackCAT: black holes in X-ray transients (Corral-Santana+ 2016)"),
-    ("J/ApJS/222/15", "WATCHDOG: Galactic black hole X-ray binaries (Tetarenko+ 2016)"),
+    ("J/ApJS/212/6/table9", "McGill Online Magnetar Catalog (Olausen & Kaspi 2014): positions"),
+    ("J/ApJS/212/6/table10", "McGill Online Magnetar Catalog: spin and distance"),
+    ("J/A+A/587/A61/tablea1", "BlackCAT (Corral-Santana+ 2016): sources"),
+    ("J/A+A/587/A61/tablea4", "BlackCAT: orbits and masses"),
+    ("J/ApJS/222/15/table12", "WATCHDOG (Tetarenko+ 2016): sources"),
+    ("J/ApJS/222/15/table13", "WATCHDOG: distances, masses and orbits"),
     ("J/A+A/673/A114/clusters", "Open clusters from Gaia DR3 (Hunt & Reffert 2023)"),
     ("J/A+A/640/A1/table1", "Open clusters from Gaia DR2 (Cantat-Gaudin+ 2020)"),
     ("VII/202", "Milky Way globular clusters (Harris 1996, 2010 edition)"),
-    ("J/MNRAS/505/5978", "Globular cluster distances (Baumgardt & Vasiliev 2021)"),
-    ("J/MNRAS/478/1520", "Globular cluster masses (Baumgardt & Hilker 2018)"),
-    ("J/MNRAS/455/1459", "Planetary nebula distances (Frew+ 2016)"),
-    ("J/A+A/656/A51", "Planetary nebula central stars in Gaia EDR3 (Gonzalez-Santamaria+ 2021)"),
-    ("J/AJ/145/101", "Updated Nearby Galaxy Catalog (Karachentsev+ 2013)"),
-    ("J/ApJ/944/94", "Cosmicflows-4 galaxy distances (Tully+ 2023)"),
+    ("J/MNRAS/478/1520/table2", "Globular cluster distances and masses (Baumgardt & Hilker 2018)"),
+    ("J/A+A/656/A51/tablea1", "Planetary nebula central stars in Gaia EDR3 (Gonzalez-Santamaria+ 2021)"),
+    ("J/A+A/656/A51/tablea2", "Planetary nebula distances from those parallaxes"),
+    ("J/AJ/145/101/catalog", "Updated Nearby Galaxy Catalog (Karachentsev+ 2013)"),
+    ("J/ApJ/944/94/table2", "Cosmicflows-4 galaxy distances (Tully+ 2023)"),
     ("VII/284", "Galactic supernova remnants (Green 2019)"),
-    ("VII/220A", "Barnard's dark objects (Barnard 1927)"),
+    ("VII/220A/barnard", "Barnard's dark objects (Barnard 1927)"),
     ("VII/20", "Sharpless HII regions (Sharpless 1959)"),
 ]
-FILTER_PGC = {"J/ApJ/944/94"}
+FILTER_PGC = {"J/ApJ/944/94/table2"}
 
 
 def get(url, timeout):
@@ -60,7 +62,7 @@ def get(url, timeout):
 
 def vizier(source, timeout=240):
     q = urllib.parse.urlencode({
-        "-source": source, "-out.all": "", "-out.add": "_RAJ,_DEJ", "-oc.form": "dec",
+        "-source": source, "-out.all": "1", "-out.add": "_RAJ,_DEJ", "-oc.form": "dec",
         "-out.max": "unlimited",
     })
     errors = []
