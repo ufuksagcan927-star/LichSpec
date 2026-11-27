@@ -1,9 +1,10 @@
 /* LichSpec Gökyüzü — dünyadan bakış.
  *
- * Gökyüzü içeriden, gözlemcinin bulunduğu yerden görüldüğü gibi çizilir: stereografik izdüşüm
- * (planetaryum programlarının kullandığı), yukarısı her zaman başucu, aşağıda yer ve ufuk, ufukta
- * yönler (K, D, G, B), gökyüzünde takımyıldız çizgileri ve adları. Ufuk ve yön çizimi gözlemcinin
- * konumuna ve saatine göre hesaplanır.
+ * Gökyüzü gözlemcinin bulunduğu yerden, bir fotoğraf makinesinin vizöründen bakılıyormuş gibi çizilir:
+ * gnomonik (TAN) izdüşüm, düz çizgiler düz kalır, ufuk her zaman düz bir çizgidir (stereografik
+ * izdüşümde ufuk geniş açıda kubbe gibi eğrilir, "kürenin içindeymiş gibi" görünür). Yukarısı her
+ * zaman başucu, aşağıda yarı saydam yer ve ufuk, ufukta yönler (K, D, G, B), gökyüzünde takımyıldız
+ * çizgileri ve adları. Ufuk ve yön çizimi gözlemcinin konumuna ve saatine göre hesaplanır.
  *
  * Aladin Lite'ın kendi çizimine dokunulmaz: takımyıldız çizgileri Aladin katmanı, yer/ufuk/yazılar
  * gökyüzünün üstünde tıklamayı geçiren ayrı bir tuvalde (canvas).
@@ -84,6 +85,7 @@
       place: defaultPlace(),
       horizon: opts.horizon !== false,
       lines: opts.lines !== false,
+      groundAlpha: opts.groundAlpha ?? 0.3,   // yerin örtücülüğü: 0 saydam, 1 opak
       now: new Date(),
       onChange: opts.onChange || (() => {}),
     };
@@ -112,18 +114,18 @@
 
     // ---------------------------------------------------------------- yerden bakış gezinmesi
     // Ufuk açıkken bakış yönü (yükseklik, yön açısı) olarak tutulur: sürükleyince yön açısı ve yükseklik
-    // değişir, yükseklik başucunda (90°) durur. Böylece başucundan geçerken görüntü ters dönmez
-    // (Aladin'in kendi sürüklemesi ekvator koordinatlarında çalışır; başucunu aşınca "yukarısı"
-    // 180° döner ve sürükleme yön değiştirip ileri geri sıçrar).
-    const ALT_MIN = -60, ALT_MAX = 90;
+    // değişir, yükseklik başucunda (90°) ve ayakucunda (−90°) durur. Böylece başucundan geçerken
+    // görüntü ters dönmez (Aladin'in kendi sürüklemesi ekvator koordinatlarında çalışır; başucunu
+    // aşınca "yukarısı" 180° döner ve sürükleme yön değiştirip ileri geri sıçrar).
+    const ALT_MIN = -90, ALT_MAX = 90;
     const nav = { alt: null, az: null, ra: null, dec: null };
 
-    /** Aladin'in merkezinden bakış yönünü günceller; başucunda yön açısı tanımsız olduğundan son değer kalır. */
+    /** Aladin'in merkezinden bakış yönünü günceller; başucunda ve ayakucunda yön açısı tanımsız olduğundan son değer kalır. */
     function syncNav() {
       const [ra, dec] = aladin.getRaDec();
       const h = altaz(ra, dec);
       nav.alt = h.alt;
-      if (h.alt < 89.5 || nav.az == null) nav.az = h.az;
+      if (Math.abs(h.alt) < 89.5 || nav.az == null) nav.az = h.az;
       nav.ra = ra;
       nav.dec = dec;
     }
@@ -179,7 +181,7 @@
         syncNav();
         const k = degPerPx();
         nav.alt += (y2 - y1) * k;                                        // aşağı çek: yukarı bak
-        nav.az -= ((x2 - x1) * k) / Math.max(0.05, Math.cos(Math.min(ALT_MAX, nav.alt) * R));
+        nav.az -= ((x2 - x1) * k) / Math.max(0.05, Math.cos(Math.max(ALT_MIN, Math.min(ALT_MAX, nav.alt)) * R));
         applyNav();
       };
     }
@@ -195,63 +197,36 @@
       return [Math.max(-2e5, Math.min(2e5, x)), Math.max(-2e5, Math.min(2e5, y))];
     }
 
-    const projectHor = (alt, az) => { const e = toRaDec(alt, az); return project(e.ra, e.dec); };
-
-    /** Üç noktadan geçen çember [cx, cy, r]; noktalar bir doğru üzerindeyse null. */
-    function circle3(a, b, c) {
-      const d = 2 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1]));
-      if (Math.abs(d) < 1e-9) return null;
-      const a2 = a[0] * a[0] + a[1] * a[1], b2 = b[0] * b[0] + b[1] * b[1], c2 = c[0] * c[0] + c[1] * c[1];
-      const ux = (a2 * (b[1] - c[1]) + b2 * (c[1] - a[1]) + c2 * (a[1] - b[1])) / d;
-      const uy = (a2 * (c[0] - b[0]) + b2 * (a[0] - c[0]) + c2 * (b[0] - a[0])) / d;
-      return [ux, uy, Math.hypot(a[0] - ux, a[1] - uy)];
+    /**
+     * Yer ve ufuk. Gnomonik izdüşümde ufuk (gökyüzünde bir büyük çember) ekranda düz bir çizgidir ve
+     * görünüm hep dik tutulduğu için yataydır: ekranın ortası ufkun a° üstündeyse çizgi ortanın
+     * tan(a)·s piksel altındadır (s: teğet düzlemde bir birimin piksel karşılığı; Aladin'in görüş alanı
+     * ekranın uzun kenarının açısıdır, dik telefonda dikey). Yer yarı saydamdır: altındaki gökyüzü,
+     * yıldızlar ve çizgiler görünür, ne kadar örteceği ayarlanabilir.
+     */
+    function horizonY(w, h) {
+      const a = Math.max(-89.9, Math.min(89.9, nav.alt));
+      const s = Math.max(w, h) / 2 / Math.tan((Math.min(170, aladin.getFov()[0]) / 2) * R);
+      return h / 2 + Math.tan(a * R) * s;
     }
 
-    /**
-     * Yer ve ufuk. Stereografik izdüşümde ufuk (gökyüzünde bir büyük çember) ekranda tam bir çember ya da
-     * doğrudur: bakılan yöndeki üç ufuk noktasından çizilir, bu yüzden ufuk her yakınlaşmada pürüzsüzdür ve
-     * ufka tam yatay bakarken de (çember doğruya döner) yer doğru tarafta kalır. Yer opaktır.
-     */
     function drawGround(w, h) {
-      const az0 = nav.az;
-      const p1 = projectHor(0, az0 - 40), p2 = projectHor(0, az0), p3 = projectHor(0, az0 + 40);
-      const g = projectHor(-5, az0);                                     // kesin yerde bir nokta
-      if (!p1 || !p2 || !p3 || !g) return;
-      const BIG = 1e6;
-      const c = circle3(p1, p2, p3);
-      const horizonPath = () => {
-        ctx.beginPath();
-        if (c && c[2] < 2e5) ctx.arc(c[0], c[1], c[2], 0, 2 * Math.PI);
-        else {
-          let dx = p3[0] - p1[0], dy = p3[1] - p1[1];
-          const n = Math.hypot(dx, dy) || 1;
-          dx /= n; dy /= n;
-          ctx.moveTo(p2[0] - dx * BIG, p2[1] - dy * BIG);
-          ctx.lineTo(p2[0] + dx * BIG, p2[1] + dy * BIG);
-        }
-      };
-      ctx.beginPath();
-      if (c && c[2] < 2e5) {
-        const inside = Math.hypot(g[0] - c[0], g[1] - c[1]) < c[2];
-        if (!inside) ctx.rect(-BIG, -BIG, 2 * BIG, 2 * BIG);           // yer çemberin dışı (gökyüzüne bakılıyor)
-        ctx.arc(c[0], c[1], c[2], 0, 2 * Math.PI);
-      } else {
-        // ufka tam yatay bakılıyor: ufuk bir doğru, yer onun g tarafındaki yarım düzlem
-        let dx = p3[0] - p1[0], dy = p3[1] - p1[1];
-        const n = Math.hypot(dx, dy) || 1;
-        dx /= n; dy /= n;
-        let nx = -dy, ny = dx;
-        if ((g[0] - p2[0]) * nx + (g[1] - p2[1]) * ny < 0) { nx = -nx; ny = -ny; }
-        ctx.moveTo(p2[0] - dx * BIG, p2[1] - dy * BIG);
-        ctx.lineTo(p2[0] + dx * BIG, p2[1] + dy * BIG);
-        ctx.lineTo(p2[0] + dx * BIG + nx * BIG, p2[1] + dy * BIG + ny * BIG);
-        ctx.lineTo(p2[0] - dx * BIG + nx * BIG, p2[1] - dy * BIG + ny * BIG);
-        ctx.closePath();
+      const y = horizonY(w, h);
+      if (y > h + 10) return;                                            // ufuk ekranın altında
+      const top = Math.max(-10, y);
+      if (state.groundAlpha > 0) {
+        // ufka yakın yer biraz daha açık: ufuk çizgisi yumuşak dursun
+        const g = ctx.createLinearGradient(0, y, 0, y + 60);
+        g.addColorStop(0, `rgba(11, 17, 14, ${(state.groundAlpha * 0.8).toFixed(3)})`);
+        g.addColorStop(1, `rgba(11, 17, 14, ${state.groundAlpha.toFixed(3)})`);
+        ctx.fillStyle = g;
+        ctx.fillRect(0, top, w, h + 10 - top);
       }
-      ctx.fillStyle = "rgb(11, 17, 14)";
-      ctx.fill("evenodd");
+      if (y < -10) return;                                               // ufuk ekranın üstünde
       // ufuk çizgisi: yumuşak bir parıltı + ince çizgi
-      horizonPath();
+      ctx.beginPath();
+      ctx.moveTo(-10, y);
+      ctx.lineTo(w + 10, y);
       ctx.strokeStyle = "rgba(255, 190, 110, 0.18)";
       ctx.lineWidth = 7;
       ctx.stroke();
@@ -279,13 +254,13 @@
     }
 
     function drawNames(w, h, fov) {
-      const maxRank = fov > 140 ? 1 : fov > 70 ? 2 : 3;
+      const maxRank = fov > 110 ? 1 : fov > 70 ? 2 : 3;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.font = `500 ${fov > 100 ? 11 : 12}px system-ui, sans-serif`;
       for (const [abbr, ra, dec, rank] of cons.labels) {
         if (rank > maxRank) continue;
-        if (state.horizon && altaz(ra, dec).alt < -2) continue;
+        if (state.horizon && state.groundAlpha > 0.85 && altaz(ra, dec).alt < -2) continue;   // opak yerin altı
         const p = project(ra, dec);
         if (!p || p[0] < -60 || p[1] < -20 || p[0] > w + 60 || p[1] > h + 20) continue;
         const t = (names[abbr] || abbr).toLocaleUpperCase("tr-TR");
@@ -331,6 +306,7 @@
       get place() { return state.place; },
       get horizon() { return state.horizon; },
       get lines() { return state.lines; },
+      get groundAlpha() { return state.groundAlpha; },
       get now() { return state.now; },
       altaz, toRaDec, dirName,
       setHorizon(on) {
@@ -338,6 +314,11 @@
         setInertia(!state.horizon);   // yerden bakışta kaydırma eylemsizliği Aladin'in ekvator sürüklemesini sürdürürdü
         if (!on) aladin.setRotation(0);
         else { syncNav(); keepUpright(); }
+        dirty = true;
+      },
+      /** Yerin örtücülüğü: 0 tamamen saydam, 1 opak. */
+      setGround(alpha) {
+        state.groundAlpha = Math.max(0, Math.min(1, +alpha || 0));
         dirty = true;
       },
       setLines(on) {
@@ -363,12 +344,13 @@
       view() {
         const [ra, dec] = aladin.getRaDec();
         const h = altaz(ra, dec);
-        const az = state.horizon && nav.az != null && h.alt >= 89.5 ? nav.az : h.az;   // başucunda son yön
+        const az = state.horizon && nav.az != null && Math.abs(h.alt) >= 89.5 ? nav.az : h.az;   // başucunda son yön
         return { ra, dec, alt: h.alt, az, dir: dirName(az), fov: aladin.getFov()[0] };
       },
       redraw() { dirty = true; },
-      /** Testler için: yerden bakış sürüklemesi etkin mi. */
+      /** Testler için: yerden bakış sürüklemesi etkin mi; ufuk çizgisinin ekrandaki yüksekliği. */
       get altAzDrag() { return altAzDrag; },
+      horizonY() { return horizonY(el.clientWidth, el.clientHeight); },
     };
     if (state.horizon) { setInertia(false); syncNav(); }
     requestAnimationFrame(frame);

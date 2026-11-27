@@ -16,6 +16,7 @@
     </form>
     <div class="top-actions">
       <label class="toggle"><input id="toggle-horizon" type="checkbox" checked> Ufuk</label>
+      <label class="toggle ground" title="Yer ne kadar örtsün: solda saydam (ufkun altındaki gökyüzü görünür), sağda opak">Yer <input id="ground-alpha" type="range" min="0" max="100" step="5" value="30" aria-label="Yerin örtücülüğü, yüzde"></label>
       <label class="toggle"><input id="toggle-lines" type="checkbox" checked> Takımyıldızlar</label>
       <label class="toggle"><input id="toggle-stars" type="checkbox" checked> Yıldızlar</label>
       <button id="btn-upload" class="btn primary" type="button">Fotoğraf yükle</button>
@@ -29,6 +30,7 @@
         <span id="place-name">…</span> · <span id="place-time"></span>
         <button id="btn-locate" type="button">Konumum</button>
       </div>
+      <div id="ground-slot" class="ground-chip" hidden></div>
       <div id="sky-status" class="sky-status">Gökyüzü yükleniyor…</div>
       <div id="gaia-status" class="gaia-status hint"></div>
       <div class="legend" aria-hidden="true">
@@ -46,7 +48,7 @@
         <div class="intro">
           <h1>Gökyüzüne dokun</h1>
           <p>Haritadaki bir yıldıza tıkla. LichSpec o yıldızı tanır, ölçülmüş verilerini getirir ve Draugr ne gördüğünü anlatır.</p>
-          <p class="muted">Gökyüzünü bulunduğun yerden, şu an göründüğü gibi görüyorsun: aşağısı yer, ufukta yönler (K, D, G, B). Sürükleyerek etrafına bakabilir, fare tekerleğiyle ya da iki parmakla yakınlaşabilirsin.</p>
+          <p class="muted">Gökyüzünü bulunduğun yerden, şu an göründüğü gibi görüyorsun: aşağısı yer, ufukta yönler (K, D, G, B). Sürükleyerek etrafına bakabilir, fare tekerleğiyle ya da iki parmakla yakınlaşabilirsin. Yer yarı saydam: ufkun altında kalan gökyüzü de görünür, üstteki <b>Yer</b> ayarıyla ne kadar örteceğini seçebilirsin.</p>
           <p class="muted">Gece çektiğin bir fotoğrafı <b>Fotoğraf yükle</b> ile bırakırsan Phobetor içindeki yıldızları bulur, hangi yıldızlar ve takımyıldızlar olduğunu fotoğrafın üstüne yazar.</p>
           <p class="muted">Haritada <b id="star-count">…</b> yıldız modellenmiş durumda, Gaia DR3 parametreleriyle: Hipparcos'un V&nbsp;&lt;&nbsp;7 bütün yıldızları, adı olan sönükler (Proxima Centauri, Barnard Yıldızı…) ve Hipparcos'ta olmayan ünlüler (Wolf 359, TRAPPIST-1, UY Scuti…). Hepsi adıyla, Türkçe adıyla ya da “Alfa Erboğa” gibi Bayer adıyla aranabilir; yazım hatası sorun değil. Yakınlaştıkça Gaia DR3'ün kaydettiği 1,8 milyar yıldız alan alan yüklenir; her birine tıklayınca kartı ölçülmüş verilerinden otomatik oluşur.</p>
           <div class="quick">

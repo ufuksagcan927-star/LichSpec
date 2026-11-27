@@ -51,7 +51,7 @@
   /** Geniş bakışta yalnızca gözle görülebilecek kadar parlak yıldızlar; yakınlaştıkça hepsi
    * (kataloğun sönük yıldızları adı olanlar: Proxima Centauri, Barnard Yıldızı…). */
   function updateMagLimit(fov) {
-    magLimit = fov > 120 ? 5.0 : fov > 60 ? 5.6 : fov > 25 ? 6.3 : fov > 8 ? 9 : 99;
+    magLimit = fov > 100 ? 5.0 : fov > 60 ? 5.6 : fov > 25 ? 6.3 : fov > 8 ? 9 : 99;
   }
 
   function drawStar(source, ctx) {
@@ -83,20 +83,41 @@
   }
 
   // -------------------------------------------------------------- gökyüzü
+  /**
+   * En geniş görüş alanı (derece). Aladin'in görüş alanı ekranın uzun kenarının açısıdır; gnomonik
+   * izdüşümde kenarlar açı büyüdükçe gerilir (120°'de kenarda 4 kat), daha genişi balık gözü gibi durur.
+   */
+  const MAX_FOV = 120;
+
+  /** Yerin örtücülüğü (0–1): kaydedilmiş tercih, yoksa %30. */
+  const GROUND_DEFAULT = 0.3;
+  function savedGround() {
+    try {
+      const v = localStorage.getItem("lichspec.ground");
+      if (v != null && v !== "" && isFinite(+v)) return Math.max(0, Math.min(1, +v));
+    } catch (_) { /* gizli pencere */ }
+    return GROUND_DEFAULT;
+  }
+  function setGround(alpha, remember = true) {
+    sky.setGround(alpha);
+    $("#ground-alpha").value = Math.round(sky.groundAlpha * 100);
+    if (remember) try { localStorage.setItem("lichspec.ground", String(sky.groundAlpha)); } catch (_) { /* gizli pencere */ }
+  }
+
   async function initSky() {
     await A.init;
     // Açılışta gözlemcinin yerinden güneye, ufkun 35° üstüne bakılır.
     const place = LichSky.defaultPlace();
     const start = LichSky.hor2eq(35, 180, LichSky.lst(new Date(), place.lon), place.lat);
     const box = $("#aladin");
-    const fov0 = box.clientHeight > box.clientWidth ? 75 : 100;   // dik telefon ekranında daha dar
+    const fov0 = box.clientHeight > box.clientWidth ? 80 : 90;   // dik telefon ekranında uzun kenar dikey
     aladin = A.aladin("#aladin", {
       survey: WIDE_HIPS,
       fov: fov0,
       target: `${start.ra.toFixed(4)} ${start.dec >= 0 ? "+" : ""}${start.dec.toFixed(4)}`,
-      // Stereografik izdüşüm: gökyüzüne içeriden, yerden bakılıyormuş gibi (planetaryum görünümü).
-      // Küre kenarı hiç görünmez; seçenek düğmesi yok.
-      projection: "STG",
+      // Gnomonik (TAN) izdüşüm: fotoğraf makinesinin vizöründen bakar gibi, düz çizgiler düz, ufuk
+      // düz bir çizgi. Küre kenarı hiç görünmez; seçenek düğmesi yok.
+      projection: "TAN",
       cooFrame: "ICRSd",
       showReticle: false,
       showCooGridControl: false,
@@ -110,9 +131,11 @@
       showProjectionControl: false,
       showSettingsControl: false,
       showStatusBar: false,
+      showZoomControl: false,             // yakınlaşma tekerlek ve iki parmakla; görüş alanı durum satırında
+      showFov: false,
       backgroundColor: "rgb(5, 7, 16)",   // karo gelmeyen yer gri değil, gece karası
     });
-    aladin.setFoVRange(0.002, 190);
+    aladin.setFoVRange(0.002, MAX_FOV);
     updateMagLimit(fov0);
     // Mellinger CDS'den gelir; CDS'ye ulaşılamazsa geniş bakışta da DSS2 (IRSA) kullanılır.
     reachable(WIDE_HIPS + "/properties", 7000).then((ok) => {
@@ -149,7 +172,7 @@
     });
 
     // Ufuk, yer, yönler, takımyıldızlar
-    sky = LichSky.create(aladin, $("#aladin"), CONS, D.CON_TR, { onChange: updateStatus });
+    sky = LichSky.create(aladin, $("#aladin"), CONS, D.CON_TR, { onChange: updateStatus, groundAlpha: savedGround() });
     moveAladinLogo();
 
     aladin.on("positionChanged", () => scheduleGaia());
@@ -363,20 +386,27 @@
   }
 
   function gotoStar(s, fov = 6) {
-    const hid = revealBelowHorizon(s.ra, s.dec);
+    const note = belowHorizon(s.ra, s.dec);
     aladin.gotoRaDec(s.ra, s.dec);
     if (aladin.getFov()[0] > fov) aladin.setFoV(fov);
-    return hid;
+    return note;
   }
 
-  /** Ufuk açıkken gidilen yer şu an ufkun altındaysa yer gizlenir (yoksa opak yer onu örterdi). */
-  function revealBelowHorizon(ra, dec) {
-    if (!sky || !sky.horizon || sky.altaz(ra, dec).alt >= 0) return false;
-    sky.setHorizon(false);
-    $("#toggle-horizon").checked = false;
-    return true;
+  /**
+   * Gidilen yer şu an ufkun altındaysa yer açık kalır, altındaki gökyüzü yerin içinden görünür; yer
+   * neredeyse opaksa yarı saydama indirilir. Dönüş: kartta gösterilecek not (ufkun üstündeyse boş).
+   */
+  function belowHorizon(ra, dec) {
+    if (!sky || !sky.horizon) return "";
+    const alt = sky.altaz(ra, dec).alt;
+    if (alt >= 0) return "";
+    const lowered = sky.groundAlpha > 0.6;
+    if (lowered) setGround(GROUND_DEFAULT, false);
+    const lat = sky.place.lat;
+    const never = 90 - Math.abs(lat - dec) < 0;                     // en yükseğe çıktığında bile ufkun altında
+    return `<p class="note horizon-note">Şu an ufkun ${D.fmt(-alt, 0)}° altında, onu yerin içinden görüyorsun${lowered ? " (yer yarı saydama alındı)" : ""}.`
+      + (never ? ` Bulunduğun enlemden (${D.fmt(Math.abs(lat), 0)}° ${lat >= 0 ? "K" : "G"}) hiç doğmaz.` : "") + `</p>`;
   }
-  const HORIZON_NOTE = `<p class="note horizon-note">Şu an ufkun altında olduğu için yer gizlendi. Yeniden açmak için üstteki <b>Ufuk</b> kutusu.</p>`;
 
   // -------------------------------------------------------------- yardımcılar
   function angSep(ra1, de1, ra2, de2) {
@@ -416,7 +446,7 @@
   // -------------------------------------------------------------- yıldız kartı
   function showStar(s, { goto = true, pending = false, keepScroll = false } = {}) {
     select(s);
-    const hid = goto ? gotoStar(s) : false;
+    const hid = goto ? gotoStar(s) : "";
     const d = D.derive(s);
     const body = $("#panel-body");
     const ids = (s._origin === "gaia"
@@ -478,7 +508,7 @@
           <div class="ids">${ids.map(esc).join(" · ")}</div>
         </div>
       </div>
-      ${hid ? HORIZON_NOTE : ""}
+      ${hid}
       <div class="chips">
         ${d.info ? `<span class="chip">${esc(d.info.name)}${d.cls_est ? " (tahmini)" : ""}</span>` : ""}
         ${d.lum ? `<span class="chip">${esc(d.lum.name)}</span>` : ""}
@@ -654,7 +684,7 @@
     const members = STARS.filter((s) => s.con === c.abbr && s.v != null).sort((a, b) => a.v - b.v);
     // görüş alanı: ad noktasından en uzak parlak yıldızına göre
     const far = members.filter((s) => s.v < 4.5).reduce((m, s) => Math.max(m, angSep(c.ra, c.dec, s.ra, s.dec)), 0);
-    const hid = revealBelowHorizon(c.ra, c.dec);
+    const hid = belowHorizon(c.ra, c.dec);
     aladin.gotoRaDec(c.ra, c.dec);
     aladin.setFoV(Math.max(25, Math.min(100, 2.6 * far || 45)));
     const h = sky ? sky.altaz(c.ra, c.dec) : null;
@@ -663,7 +693,7 @@
     body.innerHTML = `
       <h2 style="margin:0 0 2px">${esc(D.CON_TR[c.abbr] || n[0] || c.abbr)}</h2>
       <div class="ids">${esc([n[0], c.abbr, "takımyıldız"].filter(Boolean).join(" · "))}</div>
-      ${hid ? HORIZON_NOTE : ""}
+      ${hid}
       ${h ? `<p class="muted">Şu an (${esc(sky.place.name)}): ${h.alt > 0 ? `ufkun ${D.fmt(h.alt, 0)}° üstünde, ${sky.dirName(h.az)} yönünde` : "ufkun altında, şu an görünmüyor"}.</p>` : ""}
       ${top.length ? `<div class="section"><h3>En parlak yıldızları</h3><ul class="pick-list">${top.map((s, i) => `<li data-i="${i}">${esc(D.title(s))}<small>${esc([s.name ? s.desig : null, "V " + D.fmt(s.v, 2)].filter(Boolean).join(" · "))}</small></li>`).join("")}</ul></div>` : ""}`;
     body.querySelectorAll("li[data-i]").forEach((li) => li.onclick = () => showStar(top[+li.dataset.i]));
@@ -709,7 +739,7 @@
       list.hidden = true;
       if (!h) return;
       if (h.coord) {
-        revealBelowHorizon(h.coord[0], h.coord[1]);
+        belowHorizon(h.coord[0], h.coord[1]);
         aladin.gotoRaDec(h.coord[0], h.coord[1]); aladin.setFoV(2); showPoint(h.coord[0], h.coord[1]);
       } else if (h.kind === "con") showConstellation(h);
       else showStar(h.star);
@@ -1041,21 +1071,33 @@
   function showSolveOnSky(j, setView = true) {
     footprintLayer.removeAll();
     footprintLayer.add(A.polygon(j.corners.map(([a, b]) => [a, b])));
-    // fotoğraftaki bölge şu an ufkun altındaysa ufku kaldır, yoksa yer onu örter
-    if (sky && sky.horizon && sky.altaz(j.center.ra, j.center.dec).alt < 0) {
-      sky.setHorizon(false);
-      $("#toggle-horizon").checked = false;
-    }
+    // fotoğraftaki bölge şu an ufkun altındaysa yerin içinden görünür (yer opaksa yarı saydama iner)
+    belowHorizon(j.center.ra, j.center.dec);
     if (setView) {
       aladin.gotoRaDec(j.center.ra, j.center.dec);
-      aladin.setFoV(Math.min(170, Math.max(0.05, j.radius_deg * (j.source === "phobetor" ? 2.4 : 3))));
+      aladin.setFoV(Math.min(MAX_FOV, Math.max(0.05, j.radius_deg * (j.source === "phobetor" ? 2.4 : 3))));
       const near = j.stars[0];
       if (near) showStar(byHip.get(near.hip) || near, { goto: false });
     }
   }
 
   // -------------------------------------------------------------- başlat
+  /** Yer ayarı: kayıtlı değer; dar ekranda üst çubuk yerine gökyüzünün köşesinde (çubuk bir satır uzamasın). */
+  function initGroundControl() {
+    const ctl = $("#ground-alpha"), label = ctl.closest("label"), slot = $("#ground-slot");
+    ctl.value = Math.round(savedGround() * 100);
+    const narrow = matchMedia("(max-width: 860px)");
+    const place = () => {
+      if (narrow.matches) slot.append(label);
+      else $("#toggle-horizon").closest("label").after(label);
+      slot.hidden = !narrow.matches;
+    };
+    place();
+    narrow.addEventListener ? narrow.addEventListener("change", place) : narrow.addListener(place);
+  }
+
   async function main() {
+    initGroundControl();
     initUpload();
     try {
       await Promise.all([loadCatalog(), loadConstellations()]);
@@ -1083,7 +1125,13 @@
     }
     $("#toggle-stars").onchange = (e) => (e.target.checked ? starCat.show() : starCat.hide());
     $("#toggle-lines").onchange = (e) => sky.setLines(e.target.checked);
-    $("#toggle-horizon").onchange = (e) => { sky.setHorizon(e.target.checked); };
+    const groundCtl = $("#ground-alpha");
+    groundCtl.oninput = () => setGround(groundCtl.value / 100);
+    $("#toggle-horizon").onchange = (e) => {
+      sky.setHorizon(e.target.checked);
+      groundCtl.disabled = !e.target.checked;
+      groundCtl.closest("label").classList.toggle("off", !e.target.checked);
+    };
     $("#btn-locate").onclick = locate;
     window.lichspec = {
       aladin, STARS, showStar, renderSolve, sky, data: LichData,
