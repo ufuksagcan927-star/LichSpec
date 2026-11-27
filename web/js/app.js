@@ -84,10 +84,14 @@
 
   // -------------------------------------------------------------- gökyüzü
   /**
-   * En geniş görüş alanı (derece). Aladin'in görüş alanı ekranın uzun kenarının açısıdır; gnomonik
-   * izdüşümde kenarlar açı büyüdükçe gerilir (120°'de kenarda 4 kat), daha genişi balık gözü gibi durur.
+   * En geniş görüş alanı (derece), ekranın uzun kenarı boyunca. Gnomonik izdüşümde kenarlar açı
+   * büyüdükçe gerilir (120°'de kenarda 4 kat), daha genişi balık gözü gibi durur. Aladin 3.9 görüş
+   * alanını genişlik boyunca tutar; LichSky.fovFor uzun kenar açısını ona çevirir.
    */
   const MAX_FOV = 120;
+  const boxFov = (deg) => { const b = $("#aladin"); return LichSky.fovFor(deg, b.clientWidth, b.clientHeight); };
+  /** Ekranın uzun kenarının gördüğü açı: durum satırında "görüş alanı" ve eşiklerde kullanılan. */
+  const longFov = () => (sky ? sky.longFov() : aladin.getFov()[0]);
 
   /** Yerin örtücülüğü (0–1): kaydedilmiş tercih, yoksa %30. */
   const GROUND_DEFAULT = 0.3;
@@ -104,13 +108,31 @@
     if (remember) try { localStorage.setItem("lichspec.ground", String(sky.groundAlpha)); } catch (_) { /* gizli pencere */ }
   }
 
+  /**
+   * Aladin 3.9 gnomonik izdüşümde, köşelerinden biri bakış merkezinden 90°'den uzakta kalan bir çokgeni
+   * (yüklenen fotoğrafın çerçevesi gibi) çizerken hata verip çizim döngüsünü durduruyor. Böyle bir
+   * çokgen o an çizilmez, gökyüzü donmaz.
+   */
+  function guardPolygons() {
+    try {
+      const proto = Object.getPrototypeOf(A.polygon([[0, 0], [1, 0], [1, 1]]));
+      if (!proto || proto.lichGuard || typeof proto.draw !== "function") return;
+      const draw = proto.draw;
+      proto.draw = function (ctx, ...rest) {
+        try { return draw.call(this, ctx, ...rest); } catch (_) { ctx.beginPath(); return false; }
+      };
+      proto.lichGuard = true;
+    } catch (_) { /* başka bir Aladin sürümü */ }
+  }
+
   async function initSky() {
     await A.init;
     // Açılışta gözlemcinin yerinden güneye, ufkun 35° üstüne bakılır.
     const place = LichSky.defaultPlace();
     const start = LichSky.hor2eq(35, 180, LichSky.lst(new Date(), place.lon), place.lat);
     const box = $("#aladin");
-    const fov0 = box.clientHeight > box.clientWidth ? 80 : 90;   // dik telefon ekranında uzun kenar dikey
+    const long0 = box.clientHeight > box.clientWidth ? 80 : 90;   // uzun kenar boyunca; dik telefonda dikey
+    const fov0 = boxFov(long0);
     aladin = A.aladin("#aladin", {
       survey: WIDE_HIPS,
       fov: fov0,
@@ -135,8 +157,22 @@
       showFov: false,
       backgroundColor: "rgb(5, 7, 16)",   // karo gelmeyen yer gri değil, gece karası
     });
-    aladin.setFoVRange(0.002, MAX_FOV);
-    updateMagLimit(fov0);
+    aladin.setFoVRange(0.002, boxFov(MAX_FOV));
+    updateMagLimit(long0);
+    guardPolygons();
+    // Aladin 3.9 tuvalini önce pencere boyunda kurar, az sonra kutuya oturturken ölçeği korur ve görüş
+    // alanı daralır: ilk yeniden boyutlanmadan sonra başlangıç görüş alanı yeniden verilir. Kutunun
+    // biçimi değişince (telefonu çevirmek) en geniş görüş alanı da yeniden hesaplanır.
+    let firstResize = true;
+    const fitBox = () => {
+      const max = boxFov(MAX_FOV);
+      aladin.setFoVRange(0.002, max);
+      if (firstResize) { firstResize = false; aladin.setFoV(fov0); }
+      else if (aladin.getFov()[0] > max + 0.01) aladin.setFoV(max);
+      if (sky) sky.redraw();
+    };
+    aladin.on("resizeChanged", () => setTimeout(fitBox, 50));
+    setTimeout(() => { if (firstResize) fitBox(); }, 800);
     // Mellinger CDS'den gelir; CDS'ye ulaşılamazsa geniş bakışta da DSS2 (IRSA) kullanılır.
     reachable(WIDE_HIPS + "/properties", 7000).then((ok) => {
       if (ok) return;
@@ -210,7 +246,7 @@
   let detailOn = false, wideFailed = false;
   function updateImagery() {
     const fov = aladin.getFov()[0];
-    updateMagLimit(fov);
+    updateMagLimit(longFov());
     if (wideFailed) return;   // taban zaten DSS2
     const op = fov >= DETAIL_FROM ? 0 : fov <= DETAIL_FULL ? 1 : (DETAIL_FROM - fov) / (DETAIL_FROM - DETAIL_FULL);
     if (op > 0 && !detailOn) { aladin.setOverlayImageLayer(DETAIL_HIPS, "detail"); detailOn = true; }
@@ -295,7 +331,7 @@
   }
 
   function updateGaiaHips() {
-    const fov = aladin.getFov()[0];
+    const fov = longFov();
     const badge = gaiaBadge();
     if (fov > GAIA_HIPS_MAX_FOV) {
       gaiaHips.hide();
@@ -1075,7 +1111,7 @@
     belowHorizon(j.center.ra, j.center.dec);
     if (setView) {
       aladin.gotoRaDec(j.center.ra, j.center.dec);
-      aladin.setFoV(Math.min(MAX_FOV, Math.max(0.05, j.radius_deg * (j.source === "phobetor" ? 2.4 : 3))));
+      aladin.setFoV(Math.min(boxFov(MAX_FOV), Math.max(0.05, j.radius_deg * (j.source === "phobetor" ? 2.4 : 3))));
       const near = j.stars[0];
       if (near) showStar(byHip.get(near.hip) || near, { goto: false });
     }

@@ -66,7 +66,7 @@ async function dumpShot(page, name, { full = false } = {}) {
   page.on("requestfailed", (r) => badRequests.push(`${r.failure() && r.failure().errorText} ${r.url().slice(0, 160)}`));
   page.on("response", (r) => { if (r.status() >= 400) badRequests.push(`HTTP ${r.status()} ${r.url().slice(0, 160)}`); });
   if (flags["aladin-local"]) {
-    await page.route("https://cdn.jsdelivr.net/npm/aladin-lite@3.6.5/dist/aladin.js",
+    await page.route(/^https:\/\/cdn\.jsdelivr\.net\/npm\/aladin-lite@[^/]+\/dist\/aladin\.js$/,
       (r) => r.fulfill({ path: flags["aladin-local"], contentType: "application/javascript" }));
   }
 
