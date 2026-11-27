@@ -6,7 +6,8 @@
  *
  * Loads the site, drags the view up through the zenith, checks the flat (gnomonic) view, the straight
  * horizon and the see-through ground with its opacity slider, tries the
- * search (typos, Turkish names, constellations), zooms into M67, waits for Gaia DR3 stars, clicks
+ * search (typos, Turkish names, constellations, galaxies, nebulae, pulsars, black holes), opens the Andromeda
+ * Galaxy card from its symbol on the sky, zooms into M67, waits for Gaia DR3 stars, clicks
  * one, checks the generated star card, uploads a FITS image and checks the plate solution. From inside
  * the browser it also probes every external data service the static site depends on, so
  * a missing CORS header shows up here. Prints a report; exits 1 if a core step fails.
@@ -187,6 +188,38 @@ async function dumpShot(page, name, { full = false } = {}) {
     }
   }
   if (flags["dump-shots"]) await dumpShot(page, "barnard");
+
+  log("\n== deep sky: galaxies, nebulae, clusters, pulsars, black holes");
+  await page.waitForFunction(() => window.lichspec.deep && window.lichspec.deep.ready, null, { timeout: 30000 }).catch(() => {});
+  const deepCount = await page.evaluate(() => window.lichspec.deep.count);
+  log("catalogue:", JSON.stringify(deepCount));
+  if (!(deepCount.dso > 10000 && deepCount.compact > 3000)) failures.push(`the deep-sky catalogue did not load: ${JSON.stringify(deepCount)}`);
+  for (const [q, want] of [["andromeda galaksisi", "Andromeda Galaksisi"], ["m42", "Orion Bulutsusu"], ["yengeç pulsarı", "Yengeç Pulsarı"],
+    ["sgr a*", "Yay A*"], ["kuğu x-1", "Kuğu X-1"], ["hyadlar", "Hyadlar"], ["kara delik", "Yay A*"]]) {
+    await page.fill("#search-input", "");
+    await page.type("#search-input", q, { delay: 10 });
+    await page.waitForTimeout(250);
+    const first = await page.evaluate(() => document.querySelector("#search-results li")?.firstChild?.textContent?.trim() || "");
+    log(`  ${JSON.stringify(q)} → ${first}`);
+    if (first !== want) failures.push(`search "${q}" gave "${first}", expected "${want}"`);
+  }
+  await page.press("#search-input", "Escape");
+  // a card opened from the sky: the Andromeda Galaxy is drawn in the middle of the view, a click next to its
+  // centre opens its card (not on M42: the Trapezium star sits on its centre and a click there opens the star)
+  await page.evaluate(() => { document.querySelector("#search-input").blur(); lichspec.aladin.gotoRaDec(10.685, 41.269); lichspec.aladin.setFoV(8); });
+  await page.waitForTimeout(1500);
+  const m31 = await page.evaluate(() => { const p = lichspec.aladin.world2pix(10.72, 41.30); const b = document.querySelector("#aladin").getBoundingClientRect(); return p && [b.left + p[0], b.top + p[1]]; });
+  if (m31) { await page.mouse.click(m31[0], m31[1]); await page.waitForTimeout(1200); }
+  const deepCard = await page.evaluate(() => ({
+    title: document.querySelector(".star-head h2")?.innerText,
+    facts: [...document.querySelectorAll("dl.facts dt")].map((x) => x.innerText),
+    sources: document.querySelectorAll("ul.sources li").length,
+    narration: (document.querySelector(".narration")?.innerText || "").slice(0, 160),
+  }));
+  log("clicked M31:", JSON.stringify(deepCard));
+  if (deepCard.title !== "Andromeda Galaksisi") failures.push(`a click on M31 opened "${deepCard.title}"`);
+  else if (!deepCard.facts.includes("Uzaklık") || !deepCard.sources) failures.push("the Andromeda Galaxy card has no distance or no sources");
+  if (flags["dump-shots"]) await dumpShot(page, "m31-card");
   await page.evaluate(() => { lichspec.aladin.gotoRaDec(83.82, -5.39); lichspec.aladin.setFoV(9); });
   await page.waitForTimeout(8000);
   log("zoomed into Orion (9°):", JSON.stringify(await page.evaluate(() => window.lichspec.imagery)));

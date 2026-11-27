@@ -83,7 +83,7 @@ SOURCES = {
 # OpenNGC adı → Türkçe ad. Türk gökbilim yazınında kullanılan adlar; İngilizce adlar aramada kalır.
 TR = {
     "NGC1952": "Yengeç Bulutsusu", "NGC6523": "Lagün Bulutsusu", "NGC6705": "Yaban Ördeği Kümesi",
-    "NGC6205": "Büyük Herkül Kümesi", "NGC6611": "Kartal Bulutsusu", "IC4703": "Kartal Bulutsusu",
+    "NGC6205": "Büyük Herkül Kümesi", "NGC6611": "Kartal Bulutsusu", "IC4703": "Kartal Bulutsusu (IC 4703)",
     "NGC6618": "Omega Bulutsusu", "NGC6514": "Trifid Bulutsusu", "IC4715": "Küçük Yay Yıldız Bulutu",
     "NGC6853": "Halter Bulutsusu", "NGC0224": "Andromeda Galaksisi", "NGC0598": "Üçgen Galaksisi",
     "NGC1976": "Orion Bulutsusu", "NGC1982": "De Mairan Bulutsusu", "NGC2632": "Arı Kovanı Kümesi",
@@ -98,10 +98,10 @@ TR = {
     "NGC6826": "Göz Kırpan Bulutsu", "NGC3132": "Güney Halka Bulutsusu", "NGC6302": "Kelebek Bulutsusu",
     "NGC0040": "Papyon Bulutsusu", "NGC6537": "Kırmızı Örümcek Bulutsusu",
     "NGC7000": "Kuzey Amerika Bulutsusu", "IC5070": "Pelikan Bulutsusu",
-    "NGC2237": "Rozet Bulutsusu", "NGC2238": "Rozet Bulutsusu", "NGC2246": "Rozet Bulutsusu",
+    "NGC2237": "Rozet Bulutsusu", "NGC2238": "Rozet Bulutsusu (NGC 2238)", "NGC2246": "Rozet Bulutsusu (NGC 2246)",
     "NGC2244": "Rozet Kümesi", "NGC2264": "Koni Bulutsusu ve Noel Ağacı Kümesi", "NGC2024": "Alev Bulutsusu",
     "B033": "Atbaşı Bulutsusu", "NGC6960": "Batı Peçe Bulutsusu", "NGC6992": "Doğu Peçe Bulutsusu",
-    "NGC6995": "Doğu Peçe Bulutsusu", "NGC3372": "Karina Bulutsusu", "NGC2070": "Tarantula Bulutsusu",
+    "NGC6995": "Doğu Peçe Bulutsusu (NGC 6995)", "NGC3372": "Karina Bulutsusu", "NGC2070": "Tarantula Bulutsusu",
     "ESO056-115": "Büyük Macellan Bulutu", "NGC0292": "Küçük Macellan Bulutu",
     "NGC5139": "Omega Centauri", "NGC0104": "47 Tucanae", "NGC0869": "Çift Küme (h Persei)",
     "NGC0884": "Çift Küme (χ Persei)", "C014": "Çift Küme", "NGC4755": "Mücevher Kutusu",
@@ -111,7 +111,7 @@ TR = {
     "NGC6334": "Kedi Pençesi Bulutsusu", "NGC6357": "Savaş ve Barış Bulutsusu", "NGC1909": "Cadı Başı Bulutsusu",
     "NGC2359": "Thor'un Miğferi", "NGC1435": "Merope Bulutsusu", "NGC1977": "Koşan Adam Bulutsusu",
     "NGC4565": "İğne Galaksisi", "NGC0253": "Heykeltıraş Galaksisi", "NGC5128": "Erboğa A",
-    "NGC4038": "Anten Galaksileri", "NGC4039": "Anten Galaksileri", "NGC6822": "Barnard Galaksisi",
+    "NGC4038": "Anten Galaksileri (NGC 4038)", "NGC4039": "Anten Galaksileri (NGC 4039)", "NGC6822": "Barnard Galaksisi",
     "HCG092": "Stephan Beşlisi", "HCG079": "Seyfert Altılısı", "NGC4631": "Balina Galaksisi",
     "NGC4656": "Hokey Sopası Galaksisi", "Mel111": "Berenis'in Saçı Kümesi", "Cl399": "Askı Kümesi",
     "C041": "Hyadlar", "C099": "Kömür Çuvalı Bulutsusu", "C009": "Mağara Bulutsusu",
@@ -122,7 +122,7 @@ TR = {
     "NGC7023": "İris Bulutsusu", "IC0405": "Alevli Yıldız Bulutsusu", "IC5146": "Koza Bulutsusu",
     "NGC0457": "Baykuş Kümesi", "IC0443": "Denizanası Bulutsusu", "NGC2261": "Hubble'ın Değişen Bulutsusu",
     "NGC6445": "Küçük Mücevher Bulutsusu", "NGC6369": "Küçük Hayalet Bulutsusu",
-    "NGC4567": "Siyam İkizleri", "NGC4568": "Siyam İkizleri", "NGC3115": "İğ Galaksisi",
+    "NGC4567": "Siyam İkizleri (NGC 4567)", "NGC4568": "Siyam İkizleri (NGC 4568)", "NGC3115": "İğ Galaksisi",
     "NGC2736": "Kalem Bulutsusu", "IC4604": "Rho Ophiuchi Bulutsusu", "NGC6188": "Kenar Bulutsusu",
 }
 # OpenNGC'de ortak adı olmayan ama bilinen İngilizce adlar (arama için)
@@ -319,7 +319,7 @@ NEUTRON_STARS = [
     dict(id="Cas A NS", tr="Kraliçe A nötron yıldızı", k="ns", ra=350.86641667, de=58.81177778, d=3400, d_e=300,
          src="Reed vd. 1995, ApJ 440, 706 (uzaklık); Tananbaum 1999, IAU Circ. 7246 (Chandra)", alias=["Cassiopeia A", "Cas A"],
          note="Yaklaşık 350 yıl önce patlayan Kraliçe A süpernovasının kalıntısının ortasındaki genç nötron yıldızı; Chandra'nın ilk görüntüsünde bulundu (1999)."),
-    dict(id="GW170817", tr="GW170817 (nötron yıldızı birleşmesi)", k="merger", ra=197.4503542, de=-23.3814842, d=40e6, d_e=8e6,
+    dict(id="GW170817", k="merger", ra=197.4503542, de=-23.3814842, d=40e6, d_e=8e6,
          src="LIGO/Virgo 2017, PRL 119, 161101; Coulter vd. 2017, Science 358, 1556", host="NGC4993",
          alias=["AT 2017gfo", "kilonova"],
          note="İki nötron yıldızının birleşmesi: kütleçekim dalgasıyla ve ışıkla birlikte görülen ilk olay (17 Ağustos 2017). Patlamada (kilonova) altın ve platin gibi ağır elementler oluştu."),
@@ -540,13 +540,46 @@ def build_dso(objs, tables):
             return cand[0] if cand else None
         return None
 
+    # Kümelerin başka katalog adları da eşleşsin: OpenNGC'de Hyadlar "C041", Melotte 25 kimliklerinde yazar.
+    for o in objs:
+        if o["type"] in oc_types:
+            for ident in (o["row"].get("Identifiers") or "").split(","):
+                k = key(ident.strip())
+                if re.match(r"(MEL|CR|TR)\d", k):
+                    by_key.setdefault(k, o)
+
+    # Hunt & Reffert'in AllNames sütunu üst üste binen kümelerin adlarını da sayar (Hyadlar'ın içindeki
+    # CWNU 1242'de "Melotte_25" de yazar). Her OpenNGC kümesine en iyi satır seçilir: önce kendi adıyla
+    # eşleşen, sonra AllNames'teki bir adla ve kümenin ortasına yakın olan, en son yalnızca konumu tutan.
+    best = {}
     for row in rows_of(tables, "J_A+A_673_A114_clusters.tsv"):
         if (col(row, "Type") or "o") != "o":
             continue
-        names = [col(row, "Name") or ""] + (col(row, "AllNames") or "").split(",")
-        o = oc_match([n for n in names if n], pos(row), 0.1)
+        p = pos(row)
+        k = key(col(row, "Name") or "")
+        o, via = by_key.get(k), 0
+        if o is None and k.endswith("A"):             # NGC_2451A: iki kümeye ayrılmış NGC 2451'in A'sı
+            o, via = by_key.get(k[:-1]), 0.5
+        if o is None:
+            for nm in (col(row, "AllNames") or "").split(","):
+                o = by_key.get(key(nm)) if nm.strip() else None
+                if o is not None:
+                    via = 1
+                    break
+        if o is not None and o["type"] not in oc_types:
+            o = None
+        sep = sep_deg(p[0], p[1], *o["_pos"]) if o is not None and p else 0.0
+        if o is not None and via == 1 and sep > max(0.2, 0.5 * (num(o["row"].get("MajAx")) or 0) / 60, num(col(row, "r50")) or 0):
+            o = None                                  # adı geçiyor ama başka yerde: üst üste binen başka bir küme
+        if o is None and p:
+            cand = [x for _, x in grid.near(p[0], p[1], 0.1) if x["type"] in oc_types]
+            if cand:
+                o, via, sep = cand[0], 2, sep_deg(p[0], p[1], *cand[0]["_pos"])
         if o is None:
             continue
+        if id(o) not in best or (via, sep) < best[id(o)][:2]:
+            best[id(o)] = (via, sep, row, o)
+    for _, _, row, o in best.values():
         setd(o, num(col(row, "dist50")), None, "hr23")
         if o.get("ds") == "hr23":
             age = num(col(row, "logAge50"))
@@ -1076,6 +1109,11 @@ def build_compact(tables):
             if all(key(nm) != key(a) for a in al):
                 al.append(nm)
 
+    def add_also(o, src):
+        """Kayda değer ya da ad veren başka bir katalog (kartın kaynak listesi için)."""
+        if src != o.get("ds") and src not in o.setdefault("also", []):
+            o["also"].append(src)
+
     # ATNF pulsarları: güncel psrcat.db (yoksa VizieR B/psr'nin 2017 kopyası)
     psrs, version = read_psrcat(tables / "psrcat.db")
     if not psrs:
@@ -1100,6 +1138,7 @@ def build_compact(tables):
             add_alias(twin, rec["id"])
             for a in rec.get("alias", []):
                 add_alias(twin, a)
+            add_also(twin, "atnf")
             continue
         out.append(rec)
     stats["atnf"] = len(psrs)
@@ -1128,6 +1167,7 @@ def build_compact(tables):
         lim = {k: v for k, v in lim.items() if v and vals.get(k) is not None}
         if twin is not None:                         # magnetar adıyla anılır (4U 0142+61, SGR 1806-20 ...)
             twin["k"] = "mag"
+            add_also(twin, "mcgill")
             old = twin["id"]
             twin["id"] = name
             add_alias(twin, old)
@@ -1190,9 +1230,14 @@ def build_compact(tables):
                 vals["pb"] = round(vals["pb"] / 24, 6)                           # saat → gün
             vals = {k: v for k, v in vals.items() if v not in (None, "")}
             twin = near_record(p[0], p[1], 30 / 3600, ("bh",))
+            if twin is None:                     # aynı ad, kaba konum (XTE J1856+053: iki katalog 1,6' ayrı)
+                keys = {key(nm) for nm in names}
+                twin = next((o for o in out if o["k"] == "bh" and sep_deg(p[0], p[1], o["ra"], o["de"]) < 5 / 60
+                             and keys & {key(o["id"]), *(key(a) for a in o.get("alias", []))}), None)
             if twin is not None:
                 for nm in names:
                     add_alias(twin, nm)
+                add_also(twin, src)
                 if twin["ds"] in ("blackcat", "watchdog"):                       # elle yazılmış değerler kalır
                     for k, v in vals.items():
                         twin.setdefault(k, v)

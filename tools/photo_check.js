@@ -116,6 +116,7 @@ function brightStarsInFrame(page) {
           stars: (s.stars || []).filter((x) => !x.predicted).length,
           names: (s.stars || []).slice(0, 8).map((x) => (x.name || x.desig || "HIP " + x.hip) + (x.predicted ? " (predicted)" : "")),
           constellations: s.cons ? s.cons.labels.map((l) => l[0]) : [], meta: document.querySelector("#solve-meta").innerText.replace(/\s*\n\s*/g, " | "),
+          deep: (s.deep || []).slice(0, 12).map((d) => window.lichspec.deep.title(d.obj)),
         };
       });
     } catch (e) {
@@ -135,6 +136,7 @@ function brightStarsInFrame(page) {
     const ph = r.phobetor ? `Phobetor ${r.phobetor.n} stars (${r.phobetor.backend}, ${(r.phobetor.ms / 1000).toFixed(1)} s)` : "";
     console.log(`- ${ok ? "OK  " : c.must_solve ? "FAIL" : "miss"} ${c.file} [${c.kind}] ${secs} s | ${ph} | ${where}`);
     if (r.names && r.names.length) console.log(`      stars: ${r.names.join(", ")} | constellations: ${r.constellations.join(", ")}`);
+    if (r.deep && r.deep.length) console.log(`      deep sky: ${r.deep.join(", ")}`);
     if (c.source) console.log(`      source: ${c.source}`);
     if (c.note) console.log(`      note: ${c.note}`);
     if (c.license) console.log(`      licence: ${c.license}`);

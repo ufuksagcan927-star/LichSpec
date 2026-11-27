@@ -6,8 +6,9 @@
  * zaman başucu, aşağıda yarı saydam yer ve ufuk, ufukta yönler (K, D, G, B), gökyüzünde takımyıldız
  * çizgileri ve adları. Ufuk ve yön çizimi gözlemcinin konumuna ve saatine göre hesaplanır.
  *
- * Aladin Lite'ın kendi çizimine dokunulmaz: takımyıldız çizgileri, adları, yer, ufuk ve yönler
- * gökyüzünün üstünde tıklamayı geçiren ayrı bir tuvalde (canvas) çizilir.
+ * Aladin Lite'ın kendi çizimine dokunulmaz: takımyıldız çizgileri, adları, derin gök simgeleri (katman
+ * olarak, deepsky.js), yer, ufuk ve yönler gökyüzünün üstünde tıklamayı geçiren ayrı bir tuvalde (canvas)
+ * çizilir.
  */
 (function (global) {
   "use strict";
@@ -349,6 +350,17 @@
       }
     }
 
+    /** Katmanların (deepsky.js) çizerken kullandığı görünüm bilgisi. */
+    const layers = [];
+    function layerView(w, h) {
+      const [ra0, dec0] = aladin.getRaDec();
+      const s = tanScale(w, h);
+      return {
+        w, h, c: unit(ra0, dec0), radius: Math.atan(Math.hypot(w, h) / 2 / s) / R, fov: longFov(w, h),
+        project, altaz, horizon: state.horizon, groundAlpha: state.groundAlpha,
+      };
+    }
+
     let lastKey = "", dirty = true;
     function frame() {
       if (state.horizon) { syncNav(); keepUpright(); }
@@ -370,6 +382,12 @@
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, w, h);
         if (state.lines) { drawLines(w, h); drawNames(w, h, longFov(w, h)); }
+        if (layers.length) {                                             // derin gök simgeleri: yerin altında kalırsa yer örter
+          const v = layerView(w, h);
+          for (const fn of layers) {
+            try { fn(ctx, v); } catch (e) { console.error("LichSky katmanı:", e); }
+          }
+        }
         if (state.horizon) { drawGround(w, h); drawCardinals(w, h); }
         state.onChange(api.view());
       }
@@ -424,6 +442,8 @@
         return { ra, dec, alt: h.alt, az, dir: dirName(az), fov: longFov() };
       },
       redraw() { dirty = true; },
+      /** Gökyüzü tuvaline çizen katman ekle: fn(ctx, görünüm) her yeniden çizimde, yerden önce çağrılır. */
+      addLayer(fn) { layers.push(fn); dirty = true; },
       /** Uzun kenarın gördüğü açı; uzun kenarda `deg` derece için Aladin'e verilecek görüş alanı. */
       longFov() { return longFov(); },
       fovFor(deg) { return fovFor(deg); },

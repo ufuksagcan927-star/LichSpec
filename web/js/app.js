@@ -203,12 +203,14 @@
       // nesneye tıklandıysa objectClicked ilgilenir; boş gökyüzü → en yakın yıldız / Gaia
       setTimeout(() => {
         if (clickedObject) { clickedObject = false; return; }
-        if (e.ra != null && e.dec != null) showPoint(e.ra, e.dec);
+        if (e.ra == null || e.dec == null) return;
+        if (!pickDeep(e.ra, e.dec)) showPoint(e.ra, e.dec);
       }, 0);
     });
 
     // Ufuk, yer, yönler, takımyıldızlar
     sky = LichSky.create(aladin, $("#aladin"), CONS, D.CON_TR, { onChange: updateStatus, groundAlpha: savedGround() });
+    sky.addLayer(LichDeep.layer);                 // galaksiler, bulutsular, kümeler, kara delikler, pulsarlar
     moveAladinLogo();
 
     aladin.on("positionChanged", () => scheduleGaia());
@@ -582,7 +584,85 @@
     if (!keepScroll) body.parentElement.scrollTop = 0;
   }
 
+  // -------------------------------------------------------------- derin gök kartı
+  /**
+   * Tıklanan yerde bir derin gök simgesi varsa kartını aç. Simgenin tam üstüne (10 piksel) tıklanmadıysa ve
+   * yakında görünen parlak bir yıldız varsa yıldız öncelikli: büyük bir kümenin ya da bulutsunun içindeki
+   * yıldızlar seçilebilsin.
+   */
+  function pickDeep(ra, dec) {
+    if (!LichDeep.ready || !LichDeep.on) return false;
+    const p = aladin.world2pix(ra, dec);
+    if (!p) return false;
+    const h = LichDeep.hit(p[0], p[1]);
+    if (!h) return false;
+    if (h.dist > 10) {
+      const near = nearestStar(ra, dec, Math.max(0.05, aladin.getFov()[0] / 60));
+      if (near && (near.star.v ?? near.star.g ?? 99) <= magLimit) return false;
+    }
+    showDeep(h.obj, { goto: false });
+    return true;
+  }
+
+  function gotoDeep(o) {
+    const note = belowHorizon(o.ra, o.dec);
+    aladin.gotoRaDec(o.ra, o.dec);
+    // galaksi ya da bulutsu ekranın ~üçte birini kaplasın; noktasal cisimlerde 3°
+    const want = o.kind === "dso" ? (o.a ? Math.max(0.25, Math.min(90, (o.a / 60) * 3)) : 1.5) : 3;
+    const now = longFov();
+    if (now > want * 1.05 || now < want / 4) aladin.setFoV(boxFov(want));
+    return note;
+  }
+
+  function showDeep(o, { goto = true } = {}) {
+    select(null);
+    LichDeep.select(o);
+    if (sky) sky.redraw();
+    const hid = goto ? gotoDeep(o) : "";
+    const c = LichDeep.card(o);
+    const facts = [];
+    const fact = (k, v, src) => facts.push(`<dt>${k}</dt><dd>${v}${src ? `<span class="src">${esc(src)}</span>` : ""}</dd>`);
+    if (sky) {
+      const h = sky.altaz(o.ra, o.dec);
+      fact(`Şu an (${esc(sky.place.name)})`, h.alt > 0 ? `ufkun ${D.fmt(h.alt, 0)}° üstünde, ${sky.dirName(h.az)} yönünde` : "ufkun altında, şu an görünmüyor", "hesaplandı");
+    }
+    fact("Koordinat", `${hms(o.ra)} &nbsp; ${dms(o.dec)}`);
+    for (const [k, v, src] of c.facts) fact(esc(k), v, src);
+    const narr = o.kind === "dso" ? D.narrateDeep(o, c) : D.narrateCompact(o, c);
+    const body = $("#panel-body");
+    body.innerHTML = `
+      <div class="star-head">
+        <canvas class="deep-icon" width="92" height="92" aria-hidden="true"></canvas>
+        <div>
+          <h2${c.title.length > 22 ? ' style="font-size:16px"' : ""}>${esc(c.title)}</h2>
+          ${c.aka.length ? `<div class="aka">${c.aka.map(esc).join(" · ")}</div>` : ""}
+          ${c.ids.length ? `<div class="ids">${c.ids.slice(0, 8).map(esc).join(" · ")}</div>` : ""}
+        </div>
+      </div>
+      ${hid}
+      <div class="chips">
+        ${c.chips.map((x) => `<span class="chip${x === "aday" ? " est" : ""}">${esc(x)}</span>`).join("")}
+        ${o.con && D.CON_TR[o.con] ? `<span class="chip">${esc(D.CON_TR[o.con])}</span>` : ""}
+      </div>
+      <div class="section">
+        <h3>Anlatım <span class="tag draugr">Draugr · şablon</span></h3>
+        <div class="narration">${narr.map((p) => `<p>${p}</p>`).join("")}</div>
+      </div>
+      <div class="section">
+        <h3>Ölçülen veriler</h3>
+        <dl class="facts">${facts.join("")}</dl>
+      </div>
+      <div class="section">
+        <h3>Kaynaklar</h3>
+        <ul class="sources">${LichDeep.sources(o).map((t) => `<li>${esc(t)}</li>`).join("")}</ul>
+      </div>`;
+    LichDeep.drawIcon($(".deep-icon", body), o);
+    body.querySelectorAll("[data-deep]").forEach((a) => a.onclick = (e) => { e.preventDefault(); const h = LichDeep.byId(a.dataset.deep); if (h) showDeep(h); });
+    body.parentElement.scrollTop = 0;
+  }
+
   function showPoint(ra, dec) {
+    if (LichDeep.selected) { LichDeep.select(null); if (sky) sky.redraw(); }
     const fov = aladin.getFov()[0];
     const near = nearestStar(ra, dec, Math.max(0.05, fov / 60)); // ekranın ~1/60'ı tolerans
     if (near) { showStar(near.star, { goto: false }); return; }
@@ -704,12 +784,15 @@
       const n = CN[abbr] || [];
       items.push({ kind: "con", abbr, ra, dec, keys: [D.CON_TR[abbr], n[0], n[1], abbr].filter(Boolean), rank: 20 });
     }
+    // galaksiler, bulutsular, kümeler (M31, NGC 224, Andromeda Galaksisi…), kara delikler ve pulsarlar
+    for (const it of LichDeep.searchItems()) items.push(it);
     return items;
   }
 
   /** Kartı açık yıldızı işaretle (gökyüzünde halka) ve yeniden çizdir. */
   function select(s) {
     selected = s;
+    if (s && LichDeep.selected) { LichDeep.select(null); if (sky) sky.redraw(); }
     try { aladin.view.requestRedraw(); } catch (_) { /* bir sonraki karede çizilir */ }
   }
 
@@ -736,6 +819,17 @@
     body.parentElement.scrollTop = 0;
   }
 
+  /**
+   * Arama sonuçları. Sorguda sayı yoksa derin gök cisimlerinin yalnızca "Barnard 33", "Sharpless 276" gibi
+   * katalog adlarıyla eşleşmesi geriye düşer: "barnard" Barnard Yıldızı'nı, "barnard 33" Atbaşı Bulutsusu'nu bulur.
+   */
+  function searchIndex(index, q, limit = 10) {
+    const digit = /\d/.test(q);
+    return LichSearch.find(index, q, 40)
+      .map((r) => (!digit && r.item.kind === "deep" && /\d/.test(r.key) ? { ...r, score: r.score - 60 } : r))
+      .sort((x, y) => y.score - x.score).slice(0, limit);
+  }
+
   function initSearch() {
     const input = $("#search-input"), list = $("#search-results");
     let hits = [], sel = 0, index = null;
@@ -753,13 +847,19 @@
       if (hd) return STARS.filter((s) => s.hd === +hd[1]).map(starHit);
       const gaia = q.match(/^gaia\s*(?:dr3)?\s*(\d{6,})$/i);
       if (gaia) return STARS.filter((s) => s.gaia === gaia[1]).map(starHit);
-      return LichSearch.find(getIndex(), q, 10).map((r) => r.item);
+      return searchIndex(getIndex(), q, 10).map((r) => r.item);
     }
     function label(h) {
       if (h.coord) return `Koordinata git <small>${h.coord[0]}°, ${h.coord[1]}°</small>`;
       if (h.kind === "con") {
         const n = ((CONS && CONS.names) || {})[h.abbr] || [];
         return `${esc(D.CON_TR[h.abbr] || n[0] || h.abbr)}<small>${esc([n[0], "takımyıldız"].filter(Boolean).join(" · "))}</small>`;
+      }
+      if (h.kind === "deep") {
+        const o = h.obj, t = LichDeep.title(o);
+        const kind = o.kind === "dso" ? LichDeep.TYPE[o.t] || o.t : LichDeep.KIND[o.k] || o.k;
+        const id = o.kind === "dso" ? [o.M ? `M${o.M}` : null, LichDeep.shortId(o.id)].find((x) => x && x !== t) : o.tr ? o.id : null;
+        return `${esc(t)}<small>${esc([id, kind].filter(Boolean).join(" · "))}</small>`;
       }
       const s = h.star;
       const sub = [s.tr && s.tr !== s.name ? s.tr : null, s.name ? s.desig : null,
@@ -778,9 +878,14 @@
         belowHorizon(h.coord[0], h.coord[1]);
         aladin.gotoRaDec(h.coord[0], h.coord[1]); aladin.setFoV(2); showPoint(h.coord[0], h.coord[1]);
       } else if (h.kind === "con") showConstellation(h);
+      else if (h.kind === "deep") showDeep(h.obj);
       else showStar(h.star);
     }
     input.addEventListener("focus", () => setTimeout(getIndex, 0), { once: true });   // dizin ilk odakta kurulur
+    LichDeep.onReady(() => {                       // derin gök verisi gelince dizin yeniden kurulur
+      index = null;
+      if (input.value.trim() && document.activeElement === input) { hits = find(input.value); sel = 0; render(); }
+    });
     input.addEventListener("input", () => { hits = find(input.value); sel = 0; render(); });
     input.addEventListener("keydown", (e) => {
       if (list.hidden || !hits.length || (e.key !== "ArrowDown" && e.key !== "ArrowUp")) return;
@@ -806,6 +911,7 @@
 
     async function upload(f) {
       $("#solve-result").hidden = true;
+      await LichDeep.load().catch(() => null);      // fotoğrafa düşen galaksi, bulutsu… için
       status.hidden = false;
       status.className = "upload-status";
       status.textContent = `"${f.name}" okunuyor ve koordinatları çözülüyor…`;
@@ -816,7 +922,7 @@
         if (gz || LichFits.isFits(f.name, headTxt)) {
           try {
             const j = await LichFits.solve(f, {
-              stars: STARS, fieldBright: LichData.fieldBright,
+              stars: STARS, fieldBright: LichData.fieldBright, deep: (q) => LichDeep.inField(q),
               maxRadius: (ra, dec) => 1.3 * LichData.maxFieldRadius(ra, dec),
             });
             status.hidden = true;
@@ -997,6 +1103,10 @@
           }
         }
       });
+    j.deep = LichDeep.inField({
+      ra0, dec0, radius, W, H, world2pix: (a, b) => cam.world2pix(a, b), pixscale: (3600 * 180) / Math.PI / cam.f,
+      fovDeg: Math.max(sol.hfov || 0, sol.vfov || 0) || 2 * radius,
+    });
     Object.assign(j, {
       center: { ra: ra0, dec: dec0 }, radius_deg: radius, pixscale_arcsec: (3600 * 180) / Math.PI / cam.f,
       corners, cons: { segs, labels },
@@ -1048,7 +1158,46 @@
       const label = it.src === "bright" && i < 15 ? `<text x="${(px + r + 3).toFixed(1)}" y="${(py + fs * 0.35).toFixed(1)}" font-size="${fs.toFixed(1)}">${esc(D.title(it))}</text>` : "";
       return `<circle class="${it.src}${photo && i >= 60 ? " minor" : ""}${it.predicted ? " predicted" : ""}" data-i="${i}" cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${r.toFixed(1)}"></circle>${label}`;
     }).join("");
-    svg.innerHTML = marks;
+    // derin gök: galaksi, bulutsu, küme, pulsar, kara delik… (yıldız halkalarının altında, tıklanabilir).
+    // Gerçek boyuyla çizilir; fotoğraftan büyükler soluk, ortalarında küçük bir artı. Adlar yıldız adlarının
+    // ve birbirlerinin üstüne binmez.
+    const deep = solved ? (j.deep || []).slice(0, 40) : [];
+    const boxes = [];
+    const tw = (t, size) => 0.56 * size * t.length;
+    items.forEach((it, i) => {
+      if (it.src !== "bright" || i >= 15) return;
+      const [px, py] = toPng(it.x, it.y), t = D.title(it);
+      boxes.push([px, py - fs * 0.7, px + 14 * k + tw(t, fs), py + fs * 0.6]);
+    });
+    const free = (b) => !boxes.some((q) => q[0] < b[2] && b[0] < q[2] && q[1] < b[3] && b[1] < q[3]);
+    let deepMarks = "";
+    deep.forEach((d, i) => {
+      const o = d.obj, [px, py] = toPng(d.x, d.y), col = LichDeep.COLOR[o._g];
+      const point = o.kind === "compact" || !d.rpx;
+      const r = point ? 7 * k : Math.max(9 * k, d.rpx * pv.scale), huge = r > 0.35 * Math.min(W, H);
+      const attrs = `class="g-${o._g}${huge ? " huge" : ""}" data-d="${i}" style="stroke:rgb(${col})"`;
+      const P = (v) => v.toFixed(1);
+      if (d.maj) {
+        const ang = (Math.atan2(pv.y_flipped ? -d.maj[1] : d.maj[1], d.maj[0]) * 180) / Math.PI;
+        deepMarks += `<ellipse ${attrs} cx="${P(px)}" cy="${P(py)}" rx="${P(r)}" ry="${P(Math.max(3 * k, r * d.ratio))}" transform="rotate(${P(ang)} ${P(px)} ${P(py)})"></ellipse>`;
+      } else {
+        deepMarks += `<circle ${attrs} cx="${P(px)}" cy="${P(py)}" r="${P(r)}"></circle>`;
+        if (o._g === "bh" || o._g === "smbh") deepMarks += `<circle class="core" cx="${P(px)}" cy="${P(py)}" r="${P(r * 0.55)}"></circle>`;
+      }
+      const big = r > 14 * k;
+      if (big) {                                 // büyük cismin ortası: küçük artı, adı onun yanında
+        const c = 5 * k;
+        deepMarks += `<path class="mid" style="stroke:rgb(${col})" d="M${P(px - c)} ${P(py)}H${P(px + c)}M${P(px)} ${P(py - c)}V${P(py + c)}"></path>`;
+      }
+      if (i >= 18) return;
+      const t = LichDeep.label(o), size = fs * 0.9;
+      const lx = px + (big ? 7 * k : r + 4), ly = py + size * 0.35;
+      const box = [lx, ly - size * 0.85, lx + tw(t, size), ly + size * 0.25];
+      if (!free(box)) return;
+      boxes.push(box);
+      deepMarks += `<text x="${P(lx)}" y="${P(ly)}" font-size="${P(size)}" style="fill:rgb(${col})">${esc(t)}</text>`;
+    });
+    svg.innerHTML = (deepMarks ? `<g class="deep">${deepMarks}</g>` : "") + marks;
 
     if (photo && !solved) {
       list.innerHTML = `
@@ -1058,7 +1207,10 @@
         ışıklar (ev, sokak lambası) varsa yalnızca o kısmı kırpıp yeniden denemek işe yarayabilir.</small></li>
         <li><small>Başka bir yol: fotoğrafı ücretsiz <a href="https://nova.astrometry.net/upload" target="_blank" rel="noopener">nova.astrometry.net</a>'e yükle, oradan inen <b>new-image.fits</b> dosyasını buraya bırak.</small></li>`;
     } else {
-      list.innerHTML = items.map((it, i) => {
+      const deepLis = deep.map((d, i) => `<li data-d="${i}"><span>${esc(LichDeep.title(d.obj))}</span>`
+        + `<span class="kind deep" style="--c:${LichDeep.COLOR[d.obj._g]}">${esc(LichDeep.shortKind(d.obj))}</span>`
+        + `<small>${esc(LichDeep.brief(d.obj))}</small></li>`).join("");
+      list.innerHTML = (deep.length ? `<li class="head">Derin gök</li>${deepLis}<li class="head">Yıldızlar</li>` : "") + items.map((it, i) => {
         const mag = it.src === "bright" ? `V ${D.fmt(it.v, 2)}` : `G ${D.fmt(it.phot_g_mean_mag, 2)}`;
         const extra = it.src === "bright" ? [it.sp, it.desig && it.name ? it.desig : null].filter(Boolean).join(" · ") : [it.teff_gspphot ? `${D.fmtInt(it.teff_gspphot)} K` : null, it.spectraltype_esphs].filter(Boolean).join(" · ");
         return `<li data-i="${i}"><span>${esc(solvedStarTitle(it))}</span><span class="kind ${it.src}">${it.src === "bright" ? "LichSpec" : "Gaia"}</span><small>${mag}${extra ? " · " + esc(extra) : ""}${it.predicted ? " · yeri hesaplandı (Phobetor bulamadı)" : ""}</small></li>`;
@@ -1076,6 +1228,13 @@
     };
     svg.querySelectorAll("circle[data-i]").forEach((c) => c.onclick = () => select(+c.dataset.i));
     list.querySelectorAll("li[data-i]").forEach((l) => l.onclick = () => select(+l.dataset.i));
+    const selectDeep = (i) => {
+      $("#upload-dialog").close();
+      showSolveOnSky(j, false);
+      showDeep(deep[i].obj);
+    };
+    svg.querySelectorAll("[data-d]").forEach((c) => c.onclick = () => selectDeep(+c.dataset.d));
+    list.querySelectorAll("li[data-d]").forEach((l) => l.onclick = () => selectDeep(+l.dataset.d));
 
     const meta = [];
     if (photo) {
@@ -1092,6 +1251,10 @@
       meta.push(photo ? `<span>Tanınan: <b>${nRec.toLocaleString("tr-TR")}</b> yıldız${j.stars.length > items.length ? ` (listede en parlak ${items.length} tanesi)` : ""}${nPred ? ` · ${nPred} parlak yıldız hesaplanan yerinde` : ""}</span>`
         : `<span>Ölçek <b>${D.fmt(j.pixscale_arcsec, 3)}″/piksel</b></span>`);
       if (!photo) meta.push(`<span>Tanınan: <b>${j.stars.length}</b> parlak yıldız, <b>${j.gaia.length}</b> Gaia kaynağı${j.gaia_radius_deg ? ` (Gaia: görüntünün ortasındaki ${D.fmt(j.gaia_radius_deg * 2, 2)}° çaplı alan)` : ""}</span>`);
+      if (deep.length) {
+        const kinds = [...new Set(deep.map((d) => LichDeep.shortKind(d.obj)))];
+        meta.push(`<span>Derin gök: <b>${deep.length}</b> cisim (${esc(kinds.slice(0, 5).join(", "))}${kinds.length > 5 ? "…" : ""})</span>`);
+      }
       meta.push(`<span>Çözüm: <b>${j.source === "fits-wcs" ? "FITS başlığındaki WCS" : photo ? "yıldız deseni eşleştirme (tarayıcında)" : "Astrometry.net"}</b>${photo ? ` · ortalama sapma ${D.fmt(j.solver.rms, 1)} piksel` : ""}</span>`);
     } else if (photo) {
       meta.push(`<span class="error">${j.solver.reason === "few_stars"
@@ -1118,14 +1281,21 @@
   }
 
   // -------------------------------------------------------------- başlat
-  /** Yer ayarı: kayıtlı değer; dar ekranda üst çubuk yerine gökyüzünün köşesinde (çubuk bir satır uzamasın). */
+  /**
+   * Yer ayarı: kayıtlı değer. Dar ekranda Yer ayarı ve Derin gök düğmesi üst çubuk yerine gökyüzünün
+   * köşesinde durur (çubuk telefonda bir satır daha uzamasın).
+   */
   function initGroundControl() {
     const ctl = $("#ground-alpha"), label = ctl.closest("label"), slot = $("#ground-slot");
+    const deepLabel = $("#toggle-deep").closest("label");
     ctl.value = Math.round(savedGround() * 100);
     const narrow = matchMedia("(max-width: 860px)");
     const place = () => {
-      if (narrow.matches) slot.append(label);
-      else $("#toggle-horizon").closest("label").after(label);
+      if (narrow.matches) slot.append(label, deepLabel);
+      else {
+        $("#toggle-horizon").closest("label").after(label);
+        $("#toggle-stars").closest("label").after(deepLabel);
+      }
       slot.hidden = !narrow.matches;
     };
     place();
@@ -1133,6 +1303,7 @@
   }
 
   async function main() {
+    document.querySelectorAll(".deep-legend canvas[data-g]").forEach((c) => LichDeep.legendIcon(c, c.dataset.g));
     initGroundControl();
     initUpload();
     try {
@@ -1161,6 +1332,16 @@
     }
     $("#toggle-stars").onchange = (e) => (e.target.checked ? starCat.show() : starCat.hide());
     $("#toggle-lines").onchange = (e) => sky.setLines(e.target.checked);
+    $("#toggle-deep").onchange = (e) => { LichDeep.setOn(e.target.checked); sky.redraw(); };
+    LichDeep.load().then((n) => {
+      sky.redraw();
+      const el = $("#deep-count");
+      if (el) el.textContent = (n.dso + n.compact).toLocaleString("tr-TR");
+    }).catch((e) => console.error("Derin gök kataloğu yüklenemedi:", e));
+    document.querySelectorAll("[data-deep-goto]").forEach((b) => b.onclick = () => LichDeep.load().then(() => {
+      const o = LichDeep.byId(b.dataset.deepGoto);
+      if (o) showDeep(o);
+    }));
     const groundCtl = $("#ground-alpha");
     groundCtl.oninput = () => setGround(groundCtl.value / 100);
     $("#toggle-horizon").onchange = (e) => {
@@ -1171,7 +1352,8 @@
     $("#btn-locate").onclick = locate;
     window.lichspec = {
       aladin, STARS, showStar, renderSolve, sky, data: LichData,
-      search: (q) => LichSearch.find(LichSearch.build(searchItems()), q, 10).map((r) => (r.item.kind === "con" ? r.item.abbr : D.title(r.item.star))),
+      search: (q) => searchIndex(LichSearch.build(searchItems()), q, 10).map((r) => (r.item.kind === "con" ? r.item.abbr : r.item.kind === "deep" ? LichDeep.title(r.item.obj) : D.title(r.item.star))),
+      deep: LichDeep, showDeep,
       get gaiaMode() { return gaiaMode; },
       get imagery() { return { wide: wideFailed ? "DSS2 (Mellinger unreachable)" : "Mellinger", detail: detailOn }; },
       get lastSolve() { return lastSolve; },
