@@ -222,7 +222,8 @@
 
   /**
    * Dosyayı çöz. opts.stars: parlak yıldız kataloğu (nesne dizisi),
-   * opts.fieldBright(ra, dec, rDeg, top): alandaki en parlak Gaia kaynakları.
+   * opts.fieldBright(ra, dec, rDeg, top): alandaki en parlak Gaia kaynakları,
+   * opts.deep(alan): görüntüye düşen galaksi, bulutsu, küme, pulsar… (LichDeep.inField).
    */
   async function solve(file, opts) {
     const buf = await readFile(file);
@@ -265,8 +266,20 @@
       gaiaErr = "Gaia sorgusu başarısız: " + e.message;
     }
 
+    let deep = [];
+    if (opts.deep) {
+      try {
+        deep = opts.deep({
+          ra0, dec0, radius, W: w, H: hgt, world2pix: (a, b) => wcs.world2pix(a, b), pixscale: wcs.pixscale,
+          fovDeg: (Math.max(w, hgt) * wcs.pixscale) / 3600,
+        });
+      } catch (e) {
+        console.error("derin gök cisimleri:", e);
+      }
+    }
+
     return {
-      status: "solved", source: "fits-wcs",
+      status: "solved", source: "fits-wcs", deep,
       center: { ra: ra0, dec: dec0 }, radius_deg: radius, pixscale_arcsec: wcs.pixscale,
       width: w, height: hgt, corners,
       preview: { url: pv.url, scale: pv.scale, y_flipped: true },

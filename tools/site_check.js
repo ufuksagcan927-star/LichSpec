@@ -6,7 +6,8 @@
  *
  * Loads the site, drags the view up through the zenith, checks the flat (gnomonic) view, the straight
  * horizon and the see-through ground with its opacity slider, tries the
- * search (typos, Turkish names, constellations), zooms into M67, waits for Gaia DR3 stars, clicks
+ * search (typos, Turkish names, constellations, galaxies, nebulae, pulsars, black holes), opens the Andromeda
+ * Galaxy card from its symbol on the sky, zooms into M67, waits for Gaia DR3 stars, clicks
  * one, checks the generated star card, uploads a FITS image and checks the plate solution. From inside
  * the browser it also probes every external data service the static site depends on, so
  * a missing CORS header shows up here. Prints a report; exits 1 if a core step fails.
@@ -19,6 +20,13 @@ const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 const flags = Object.fromEntries(process.argv.slice(2).filter((a) => a.startsWith("--")).map((a) => a.slice(2).split("=")));
 const [url, fitsPath, outDir = "site-check-out"] = args;
 if (!url) { console.error("usage: node tools/site_check.js <url> [fits] [out-dir]"); process.exit(2); }
+
+/** Exit after everything written to stdout and stderr has been handed to the pipe. A bare process.exit()
+ *  dropped the end of a long CI log once, RESULT lines included. */
+function finish(code) {
+  process.stdout.write("", () => process.stderr.write("", () => process.exit(code)));
+}
+
 fs.mkdirSync(outDir, { recursive: true });
 
 const CFA = "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv";
@@ -131,7 +139,7 @@ async function dumpShot(page, name, { full = false } = {}) {
   log(`alt-az drag ${altAz} · highest alt ${Math.max(...alts).toFixed(2)}° · at rest alt ${rest[9][0].toFixed(2)}° rotation ${rest[9][1].toFixed(1)}° · flips after release: ${flips}`);
   if (!altAz) failures.push("alt-az drag is not installed");
   if (Math.max(...alts) < 89 || Math.max(...alts) > 90.001) failures.push("dragging up did not stop at the zenith");
-  if (flips) failures.push("the view keeps flipping at the zenith");
+  if (flips) failures.push(`the view keeps flipping at the zenith (rotation after release: ${rest.map((r) => r[1].toFixed(1)).join(", ")})`);
 
   // The horizon is a straight line where Aladin projects it, and the ground is see-through by default:
   // the sky below the horizon shows; the "Yer" slider sets how much the ground covers (0 clear, 100 opaque).
@@ -187,6 +195,40 @@ async function dumpShot(page, name, { full = false } = {}) {
     }
   }
   if (flags["dump-shots"]) await dumpShot(page, "barnard");
+
+  log("\n== deep sky: galaxies, nebulae, clusters, pulsars, black holes");
+  await page.waitForFunction(() => window.lichspec.deep && window.lichspec.deep.ready, null, { timeout: 30000 }).catch(() => {});
+  const deepCount = await page.evaluate(() => window.lichspec.deep.count);
+  log("catalogue:", JSON.stringify(deepCount));
+  if (!(deepCount.dso > 10000 && deepCount.compact > 3000)) failures.push(`the deep-sky catalogue did not load: ${JSON.stringify(deepCount)}`);
+  for (const [q, want] of [["andromeda galaksisi", "Andromeda Galaksisi"], ["m42", "Orion Bulutsusu"], ["yengeç pulsarı", "Yengeç Pulsarı"],
+    ["sgr a*", "Yay A*"], ["kuğu x-1", "Kuğu X-1"], ["hyadlar", "Hyadlar"], ["kara delik", "Yay A*"]]) {
+    await page.fill("#search-input", "");
+    await page.type("#search-input", q, { delay: 10 });
+    await page.waitForTimeout(250);
+    const first = await page.evaluate(() => document.querySelector("#search-results li")?.firstChild?.textContent?.trim() || "");
+    log(`  ${JSON.stringify(q)} → ${first}`);
+    if (first !== want) failures.push(`search "${q}" gave "${first}", expected "${want}"`);
+  }
+  await page.press("#search-input", "Escape");
+  // a card opened from the sky: the Andromeda Galaxy is drawn in the middle of the view, a click next to its
+  // centre opens its card (not on M42: the Trapezium star sits on its centre and a click there opens the star).
+  // Barnard's Star was the last star in the middle of the screen. Aladin keeps a star's last screen position
+  // once it is more than 90° away in the flat view, and a click there used to open Barnard's Star again.
+  await page.evaluate(() => { document.querySelector("#search-input").blur(); lichspec.aladin.gotoRaDec(10.685, 41.269); lichspec.aladin.setFoV(8); });
+  await page.waitForTimeout(1500);
+  const m31 = await page.evaluate(() => { const p = lichspec.aladin.world2pix(10.72, 41.30); const b = document.querySelector("#aladin").getBoundingClientRect(); return p && [b.left + p[0], b.top + p[1]]; });
+  if (m31) { await page.mouse.click(m31[0], m31[1]); await page.waitForTimeout(1200); }
+  const deepCard = await page.evaluate(() => ({
+    title: document.querySelector(".star-head h2")?.innerText,
+    facts: [...document.querySelectorAll("dl.facts dt")].map((x) => x.innerText),
+    sources: document.querySelectorAll("ul.sources li").length,
+    narration: (document.querySelector(".narration")?.innerText || "").slice(0, 160),
+  }));
+  log("clicked M31:", JSON.stringify(deepCard));
+  if (deepCard.title !== "Andromeda Galaksisi") failures.push(`a click on M31 opened "${deepCard.title}"`);
+  else if (!deepCard.facts.includes("Uzaklık") || !deepCard.sources) failures.push("the Andromeda Galaxy card has no distance or no sources");
+  if (flags["dump-shots"]) await dumpShot(page, "m31-card");
   await page.evaluate(() => { lichspec.aladin.gotoRaDec(83.82, -5.39); lichspec.aladin.setFoV(9); });
   await page.waitForTimeout(8000);
   log("zoomed into Orion (9°):", JSON.stringify(await page.evaluate(() => window.lichspec.imagery)));
@@ -302,5 +344,5 @@ async function dumpShot(page, name, { full = false } = {}) {
   badRequests.slice(0, 30).forEach((e) => log("  " + e));
   await browser.close();
   log("\n== RESULT:", failures.length ? "FAIL\n - " + failures.join("\n - ") : "PASS");
-  process.exit(failures.length ? 1 : 0);
-})().catch((e) => { console.error(e); process.exit(1); });
+  finish(failures.length ? 1 : 0);
+})().catch((e) => { console.error(e); finish(1); });

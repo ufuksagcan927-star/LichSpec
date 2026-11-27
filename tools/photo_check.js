@@ -17,6 +17,13 @@ const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 const flags = Object.fromEntries(process.argv.slice(2).filter((a) => a.startsWith("--")).map((a) => a.slice(2).split("=")));
 const [url, dir] = args;
 if (!url || !dir) { console.error("usage: node tools/photo_check.js <site-url> <photo-dir>"); process.exit(2); }
+
+/** Exit after everything written to stdout and stderr has been handed to the pipe. A bare process.exit()
+ *  dropped the end of a long CI log once, RESULT lines included. */
+function finish(code) {
+  process.stdout.write("", () => process.stderr.write("", () => process.exit(code)));
+}
+
 const cases = JSON.parse(fs.readFileSync(path.join(dir, "cases.json"), "utf8"));
 
 const D2R = Math.PI / 180;
@@ -116,6 +123,7 @@ function brightStarsInFrame(page) {
           stars: (s.stars || []).filter((x) => !x.predicted).length,
           names: (s.stars || []).slice(0, 8).map((x) => (x.name || x.desig || "HIP " + x.hip) + (x.predicted ? " (predicted)" : "")),
           constellations: s.cons ? s.cons.labels.map((l) => l[0]) : [], meta: document.querySelector("#solve-meta").innerText.replace(/\s*\n\s*/g, " | "),
+          deep: (s.deep || []).slice(0, 12).map((d) => window.lichspec.deep.title(d.obj)),
         };
       });
     } catch (e) {
@@ -135,6 +143,7 @@ function brightStarsInFrame(page) {
     const ph = r.phobetor ? `Phobetor ${r.phobetor.n} stars (${r.phobetor.backend}, ${(r.phobetor.ms / 1000).toFixed(1)} s)` : "";
     console.log(`- ${ok ? "OK  " : c.must_solve ? "FAIL" : "miss"} ${c.file} [${c.kind}] ${secs} s | ${ph} | ${where}`);
     if (r.names && r.names.length) console.log(`      stars: ${r.names.join(", ")} | constellations: ${r.constellations.join(", ")}`);
+    if (r.deep && r.deep.length) console.log(`      deep sky: ${r.deep.join(", ")}`);
     if (c.source) console.log(`      source: ${c.source}`);
     if (c.note) console.log(`      note: ${c.note}`);
     if (c.license) console.log(`      licence: ${c.license}`);
@@ -170,5 +179,5 @@ function brightStarsInFrame(page) {
   if (errors.length) console.log("\n== page errors\n  " + errors.slice(0, 15).join("\n  "));
   console.log(`\n== PHOTO RESULT: ${failures.length ? "FAIL (" + failures.join(", ") + ")" : "PASS"}`);
   await browser.close();
-  process.exit(failures.length ? 1 : 0);
-})().catch((e) => { console.error(e); process.exit(1); });
+  finish(failures.length ? 1 : 0);
+})().catch((e) => { console.error(e); finish(1); });

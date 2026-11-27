@@ -261,5 +261,120 @@
 
   function cap(x) { return x.charAt(0).toUpperCase() + x.slice(1); }
 
-  global.Draugr = { derive, cleanSpec, narrate, title, fmt, fmtInt, fmtDist, LINES, CLASS_INFO, bvColor, teffFromBV, CON_TR };
+  // ---------------------------------------------------------------- derin gök ve kompakt cisimler
+  const escH = (x) => String(x ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  /** "Açık yıldız kümesi" → "açık yıldız kümesi"; "HII bölgesi" olduğu gibi. */
+  const lc = (t) => (/^[A-ZÇĞİÖŞÜ]{2}/.test(t) ? t : t.charAt(0).toLocaleLowerCase("tr-TR") + t.slice(1));
+  const GAL_KIND = {
+    "sarmal galaksi": "Sarmal kollarında genç, mavi yıldızlar ve gaz bulutları, ortasında yaşlı yıldızlardan bir şişkinlik var.",
+    "çubuklu sarmal galaksi": "Ortasından geçen yıldızlardan bir çubuk var, sarmal kollar çubuğun uçlarından başlıyor (Samanyolu da böyle).",
+    "zayıf çubuklu sarmal galaksi": "Ortasında belli belirsiz bir çubuk var; kolları genç yıldızlarla dolu.",
+    "eliptik galaksi": "Yaşlı, kırmızımsı yıldızlardan oluşan, gazı az ve artık pek yıldız doğurmayan bir galaksi.",
+    "cüce eliptik / küresel galaksi": "Küçük, sönük ve gazı az bir cüce galaksi; çoğu daha büyük bir galaksinin uydusudur.",
+    "mercimek (lentiküler) galaksi": "Diski var ama sarmal kolları yok: sarmal ile eliptik galaksiler arasında bir tür.",
+    "düzensiz galaksi": "Belirgin bir biçimi yok; çoğunlukla gaz bakımından zengin ve yeni yıldızlar doğuruyor.",
+    "Macellan türü sarmal galaksi": "Tek kollu, düzensize yakın küçük bir sarmal: Büyük Macellan Bulutu bu türün örneği.",
+  };
+  const TYPE_TEXT = {
+    ocl: "Aynı gaz bulutundan birlikte doğmuş, birbirine gevşekçe bağlı yıldızlardan oluşan bir küme; zamanla dağılıp gider.",
+    gcl: "Yüz binlerce yaşlı yıldızın küre biçiminde sıkıca toplandığı bir küme. Küresel kümeler Samanyolu'nun en yaşlı yapılarındandır (çoğu 10 milyar yıldan yaşlı).",
+    pn: "Güneş benzeri bir yıldızın ömrünün sonunda dışarı attığı gaz kabuğu. Adı eski teleskoplarda gezegen diski gibi görünmesinden gelir; gezegenlerle ilgisi yok.",
+    neb: "Yakındaki genç ve sıcak yıldızların morötesi ışığıyla iyonlaşıp parlayan hidrojen bulutu: yeni yıldızların doğduğu bir bölge.",
+    rfn: "Yakındaki yıldızların ışığını yansıtan bir toz bulutu; mavi ışık daha çok saçıldığı için genellikle mavi görünür.",
+    drk: "Arkasındaki yıldızların ve parlak bulutsuların ışığını kesen soğuk bir toz ve molekül bulutu. Yeni yıldızlar böyle bulutların içinde doğar.",
+    snr: "Bir yıldızın süpernova patlamasından geriye kalan, saniyede binlerce kilometre hızla genişleyen gaz kabuğu.",
+  };
+
+  /** Derin gök cismi anlatımı. c: LichDeep.card(o). */
+  function narrateDeep(o, c) {
+    const L = global.LichDeep, d = c.d, p = [];
+    const con = o.con && CON_TR[o.con] ? `${CON_TR[o.con]} (${o.con}) takımyıldızında` : null;
+    const ids = c.ids.slice(0, 2).join(", ");
+    const kind = lc(d.hub || d.type);
+    p.push(`Şu an baktığın cisim: <b>${escH(c.title)}</b>${ids ? ` (${escH(ids)})` : ""}. ${con ? cap(con) + " bir" : "Bir"} ${escH(kind)}.`);
+
+    const mag = o.v ?? o.b;
+    if (mag != null) {
+      const vis = mag < 4 ? "karanlık bir gökyüzünde çıplak gözle kolayca görülür" : mag < 6 ? "karanlık bir gökyüzünde çıplak gözle soluk bir leke gibi seçilebilir"
+        : mag < 9 ? "dürbünle görülebilir" : mag < 12 ? "küçük bir teleskopla görülebilir" : mag < 14.5 ? "orta boy bir teleskop ister"
+          : "ancak büyük teleskoplarla ya da uzun pozlamalı fotoğraflarla görülür";
+      const spread = o.a && o.a > 20 && mag < 9 ? "; ışığı geniş bir alana yayıldığı için bu sayının düşündürdüğünden sönük durur" : "";
+      p.push(`Toplam parlaklığı ${fmt(mag, 1)} kadir: ${vis}${spread}.`);
+    }
+    if (o.a && o.a >= 15) {
+      const k = o.a / 31;
+      p.push(`Gökyüzünde ${L.fmtAngle(o.a)} boyunda: ${k >= 1.5 ? `dolunayın yaklaşık ${fmt(k, k >= 10 ? 0 : 1)} katı` : k >= 0.7 ? "aşağı yukarı dolunay kadar" : "dolunayın yaklaşık yarısı kadar"}.`);
+    }
+    if (d.ly) {
+      const est = o.ds === "hubble";
+      p.push(`${est ? "Kırmızıya kaymasından Hubble yasasıyla tahmin edilen uzaklığı" : "Uzaklığı"} ${L.fmtLy(d.ly)} (${escH(d.src ? d.src.short : "")}). Yani şu an gördüğün ışık oradan yaklaşık ${L.fmtYears(d.ly)} önce yola çıktı.`);
+    }
+    if (d.size_ly) {
+      const mw = c.group === "gal" && d.size_ly > 3000 ? ` (Samanyolu'nun diski ~100 bin ışık yılı)` : "";
+      p.push(`Bu uzaklıkta görünen boyu yaklaşık ${L.fmtLy(d.size_ly)} çapa karşılık geliyor${mw} (hesaplandı).`);
+    }
+    if (c.group === "gal") {
+      if (d.hub && GAL_KIND[d.hub]) p.push(GAL_KIND[d.hub]);
+      if (o.rv != null && o.rv < 0) p.push(`Bize saniyede ${fmtInt(-o.rv)} km hızla yaklaşıyor.`);
+      else if (d.z) p.push(`Evrenin genişlemesiyle saniyede ${fmtInt(o.rv)} km hızla bizden uzaklaşıyor (kırmızıya kayma z ≈ ${L.fmtSig(d.z, 3)}).`);
+      if (o.lm != null) p.push(`Toplam kütlesi Güneş'in yaklaşık ${L.fmtMass(10 ** o.lm)} katı${o.lhi != null ? `; bunun ${L.fmtMass(10 ** o.lhi)} Güneş kütlesi kadarı nötr hidrojen gazı` : ""} (${escH(L.source("ungc").short)}).`);
+      if (o.bh) p.push(`Merkezinde Güneş'in yaklaşık ${L.fmtMass(o.bh[0])} katı kütlede süper kütleli bir kara delik var (${escH(o.bh[1])}).`);
+    } else if (TYPE_TEXT[c.group]) {
+      p.push(TYPE_TEXT[c.group] + (o.t === "Cl+N" ? " İçinde bu buluttan doğmuş bir yıldız kümesi var." : ""));
+    }
+    if (o.lit) p.push(`Bulutsuyu ${escH(o.lit)} kümesinin yıldızları aydınlatıyor; uzaklığı da o kümeden.`);
+    if (c.group === "ocl" && (o.age != null || o.n)) {
+      const young = o.age != null && o.age < 50 ? " Gökbilim ölçüsünde çok genç." : o.age != null && o.age > 1000 ? " Açık kümeler için yaşlı sayılır." : "";
+      p.push(`Gaia DR3 verisine göre${o.age != null ? ` yaklaşık ${L.fmtYears(o.age * 1e6)} yaşında` : ""}${o.age != null && o.n ? ";" : ""}${o.n ? ` ${fmtInt(o.n)} üye yıldızı belirlenmiş` : ""} (${escH(L.source(o.ags || o.ds || "hr23").short)}).${young}`);
+    }
+    if (c.group === "gcl" && (o.mass || o.feh != null)) {
+      const f = [];
+      if (o.mass) f.push(`kütlesi Güneş'in yaklaşık ${L.fmtMass(o.mass)} katı`);
+      if (o.feh != null) f.push(`metal bolluğu [Fe/H] = ${fmt(o.feh, 2)}, yani Güneş'in yaklaşık ${L.fmtSig(10 ** o.feh, 2)} katı kadar ağır element içeriyor`);
+      p.push(cap(f.join("; ")) + ".");
+    }
+    if (c.group === "pn" && o.cs) p.push(`Ortadaki sıcak yıldız (${escH(o.cs)}${o.csv != null ? `, ${fmt(o.csv, 1)} kadir` : ""}) morötesi ışığıyla gazı parlatıyor; zamanla soğuyup beyaz cüceye dönüşecek.`);
+    if (c.group === "snr") {
+      const t = { S: "Kabuk türü: patlamanın şok dalgası parlak bir halka çiziyor.", F: "Dolu türü: içi, ortadaki pulsarın saçtığı parçacık rüzgârıyla parlıyor.", C: "Bileşik tür: hem genişleyen bir kabuk hem ortada pulsar rüzgârı var." }[o.snr];
+      if (t) p.push(t);
+      if (o.s1 != null) p.push(`1 GHz'te radyo akısı ${L.fmtSig(o.s1, 3)} Jy (${escH(L.source("green19").short)}).`);
+    }
+    if (o.host) p.push(`${escH(o.host)} içinde: Samanyolu'nun uydu galaksilerinden birinde.`);
+    return p;
+  }
+
+  /** Kara delik ve nötron yıldızı anlatımı. */
+  function narrateCompact(o, c) {
+    const L = global.LichDeep, d = c.d, p = [];
+    const con = o.con && CON_TR[o.con] ? ` ${CON_TR[o.con]} (${o.con}) takımyıldızı yönünde.` : "";
+    p.push(`Şu an baktığın cisim: <b>${escH(c.title)}</b>${c.title.includes(o.id) ? "" : ` (${escH(o.id)})`}, bir ${escH(lc(d.type))}${o.cand ? " adayı" : ""}.${con}`);
+    if (o.note) p.push(escH(o.note));
+    if (o.k === "bh" || o.k === "smbh") {
+      if (o.m) {
+        const ref = o.src ? L.source(o.src).short : d.src ? d.src.short : "";
+        p.push(`Kütlesi Güneş'in ${o.m_lim && o.m_lim.startsWith(">") ? "en az " : "yaklaşık "}${L.fmtMass(o.m)} katı${ref ? ` (${escH(ref)})` : ""}. Bu kütlenin olay ufku yarıçapı ${L.fmtHorizon(d)} (hesaplandı): bu sınırı geçen hiçbir şey, ışık bile geri dönemez.`);
+      } else if (o.cand) {
+        p.push("Kara delik adayı: X-ışını patlamalarının davranışı kara deliğe benziyor ama kütlesi henüz yoldaş yıldızın hareketinden ölçülmedi.");
+      }
+      if (o.pb && d.comp) p.push(`Yoldaşı (${escH(d.comp)}) ile ${o.pb < 1 ? `${L.fmtSig(o.pb * 24, 3)} saatte` : `${L.fmtSig(o.pb, 3)} günde`} bir dolanıyor${o.k === "bh" && !o.gaia ? "; yoldaştan çekilen gaz kara deliğin çevresinde ısınıp X-ışını saçıyor" : ""}.`);
+    } else {
+      if (o.k === "mag") p.push(`Bir magnetar: manyetik alanı${o.bs ? ` Dünya'nınkinin ~${L.sci(d.b_earth, 1)} katı` : " evrende bilinen en güçlü alanlardan"}. Alanın kendini yeniden düzenlemesi zaman zaman güçlü X ve gama ışını patlamalarına yol açıyor.`);
+      else if (o.k === "ns") p.push(`Güneş'ten ağır ama yalnızca ~20 km çapında bir nötron yıldızı: büyük kütleli bir yıldızın süpernova patlamasında çöken, atom çekirdeği yoğunluğundaki çekirdeği.${o.P ? ` ${o.P < 1 ? `Saniyede ${L.fmtSig(d.rate, 3)} kez` : `${L.fmtSig(o.P, 3)} saniyede bir`} dönüyor.` : ""}`);
+      else if (o.P && o.P < 0.03) p.push(`Bir milisaniye pulsarı: saniyede ${L.fmtSig(d.rate, 3)} kez dönüyor. Bir yoldaştan madde çekerek bu hıza çıkarılmış ("geri dönüştürülmüş") yaşlı bir nötron yıldızı.`);
+      else if (o.P) p.push(`Bir pulsar: Güneş'ten ağır ama yalnızca ~20 km çapında, ${o.P < 1 ? `saniyede ${L.fmtSig(d.rate, 3)} kez` : `${L.fmtSig(o.P, 3)} saniyede bir`} dönen bir nötron yıldızı. Manyetik kutuplarından çıkan ışın demeti her dönüşte Dünya'yı süpürdüğü için atımlar hâlinde görünüyor.`);
+      if (o.age && o.k !== "merger") p.push(`Dönmesinin yavaşlamasından hesaplanan karakteristik yaşı ~${L.fmtYears(o.age)}${o.edot ? `; her saniye kaybettiği dönme enerjisi Güneş'in toplam ışığının ~${L.sci(d.edot_sun, 2)} katı` : ""} (hesaplandı).`);
+      if (o.pb) p.push(`Bir yoldaşla${d.comp ? ` (${escH(d.comp)})` : ""} ${o.pb < 1 ? `${L.fmtSig(o.pb * 24, 3)} saatte` : `${L.fmtSig(o.pb, 3)} günde`} bir dolanıyor.`);
+      const where = d.assoc.filter((a) => a.kind === "SNR" || a.kind === "GC" || a.kind === "EXGAL" || a.kind === "PWN" || a.kind === "OC");
+      if (where.length) p.push(`İlişkili olduğu yer: ${where.map((a) => escH(a.text)).join("; ")}.`);
+    }
+    if (d.ly) {
+      const how = o.dk === "dm" ? "Radyo atımlarının yıldızlararası elektronlarda gecikmesinden (DM) kabaca tahmin edilen uzaklığı" : o.dk === "px" ? "Paralaksından ölçülen uzaklığı" : "Uzaklığı";
+      p.push(`${how} ${L.fmtLy(d.ly)}.`);
+    }
+    if (o.lb != null) p.push(`Kırmızıya kayması z = ${L.fmtSig(o.z, 3)}: ışığı bize yaklaşık ${L.fmtSig(o.lb, 3)} milyar yılda ulaştı (hesaplandı).`);
+    if (o.yr && o.ds === "atnf") p.push(`Keşif yayını: ${o.yr}.`);
+    return p;
+  }
+
+  global.Draugr = { derive, cleanSpec, narrate, narrateDeep, narrateCompact, title, fmt, fmtInt, fmtDist, LINES, CLASS_INFO, bvColor, teffFromBV, CON_TR };
 })(window);

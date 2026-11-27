@@ -11,7 +11,7 @@
   <header class="topbar">
     <a class="brand" href="./"><img src="assets/logo.svg" alt="" width="28" height="28"><span>LichSpec</span><small>Gökyüzü</small></a>
     <form id="search" class="search" autocomplete="off">
-      <input id="search-input" type="search" placeholder="Ara: Proxima Centauri, Kutup Yıldızı, Alfa Erboğa, Avcı, HIP 32349" aria-label="Yıldız ya da takımyıldız ara" role="combobox" aria-controls="search-results" aria-autocomplete="list">
+      <input id="search-input" type="search" placeholder="Ara: Kutup Yıldızı, Andromeda, M42, Yengeç Pulsarı, kara delik, Avcı" aria-label="Yıldız, takımyıldız, galaksi, bulutsu ya da kara delik ara" role="combobox" aria-controls="search-results" aria-autocomplete="list">
       <ul id="search-results" class="search-results" role="listbox" hidden></ul>
     </form>
     <div class="top-actions">
@@ -19,6 +19,7 @@
       <label class="toggle ground" title="Yer ne kadar örtsün: solda saydam (ufkun altındaki gökyüzü görünür), sağda opak">Yer <input id="ground-alpha" type="range" min="0" max="100" step="5" value="30" aria-label="Yerin örtücülüğü, yüzde"></label>
       <label class="toggle"><input id="toggle-lines" type="checkbox" checked> Takımyıldızlar</label>
       <label class="toggle"><input id="toggle-stars" type="checkbox" checked> Yıldızlar</label>
+      <label class="toggle" title="Galaksiler, bulutsular, yıldız kümeleri, pulsarlar ve kara delikler"><input id="toggle-deep" type="checkbox" checked> Derin gök</label>
       <button id="btn-upload" class="btn primary" type="button">Fotoğraf yükle</button>
     </div>
   </header>
@@ -59,6 +60,29 @@
             <button data-goto="Antares">Antares</button>
             <button data-goto="Rigel">Rigel</button>
           </div>
+          <p class="muted">Gökyüzünde <b id="deep-count">…</b> derin gök cismi de işaretli: OpenNGC'nin bütün NGC ve IC cisimleri (galaksiler, bulutsular, yıldız kümeleri), Samanyolu'nun süpernova kalıntıları, karanlık bulutsuları ve HII bölgeleri, ATNF kataloğundaki bütün pulsarlar, magnetarlar ve bilinen kara delikler. Uzaktan bakınca en bilinenleri görünür, yakınlaştıkça sönükleri de belirir. Simgeye tıklayınca uzaklığı, boyu, yaşı ya da kütlesi gibi ölçülmüş verileri kaynaklarıyla açılır; “Andromeda”, “M42”, “kara delik” ya da “Yengeç Pulsarı” diye de aranabilir.</p>
+          <ul class="deep-legend" aria-label="Derin gök simgeleri">
+            <li><canvas data-g="gal" width="40" height="40"></canvas>galaksi</li>
+            <li><canvas data-g="neb" width="40" height="40"></canvas>salma bulutsusu</li>
+            <li><canvas data-g="ocl" width="40" height="40"></canvas>açık küme</li>
+            <li><canvas data-g="rfn" width="40" height="40"></canvas>yansıma bulutsusu</li>
+            <li><canvas data-g="gcl" width="40" height="40"></canvas>küresel küme</li>
+            <li><canvas data-g="drk" width="40" height="40"></canvas>karanlık bulutsu</li>
+            <li><canvas data-g="pn" width="40" height="40"></canvas>gezegenimsi bulutsu</li>
+            <li><canvas data-g="snr" width="40" height="40"></canvas>süpernova kalıntısı</li>
+            <li><canvas data-g="psr" width="40" height="40"></canvas>pulsar</li>
+            <li><canvas data-g="mag" width="40" height="40"></canvas>magnetar</li>
+            <li><canvas data-g="bh" width="40" height="40"></canvas>kara delik</li>
+            <li><canvas data-g="smbh" width="40" height="40"></canvas>süper kütleli kara delik</li>
+          </ul>
+          <div class="quick">
+            <button data-deep-goto="NGC0224">Andromeda Galaksisi</button>
+            <button data-deep-goto="NGC1976">Orion Bulutsusu</button>
+            <button data-deep-goto="Mel022">Ülker</button>
+            <button data-deep-goto="NGC1952">Yengeç Bulutsusu</button>
+            <button data-deep-goto="Sgr A*">Yay A*</button>
+            <button data-deep-goto="Cyg X-1">Kuğu X-1</button>
+          </div>
         </div>
       </div>
       <footer class="credits">
@@ -67,6 +91,11 @@
         ESA Hipparcos. Gökyüzü ve katalog erişimi: <a href="https://aladin.cds.unistra.fr/AladinLite/" target="_blank" rel="noopener">Aladin Lite</a>
         ve VizieR (CDS, Strasbourg); görüntüler A. Mellinger ve DSS2 (STScI/NASA).
         Yıldız adları, takımyıldız çizgileri ve adları: d3-celestial (BSD-3), çizgiler IAU ve Sky &amp; Telescope haritalarından.
+        Derin gök: <a href="https://github.com/mattiaverga/OpenNGC" target="_blank" rel="noopener">OpenNGC</a> (M. Verga, CC BY-SA 4.0),
+        <a href="https://www.atnf.csiro.au/research/pulsar/psrcat/" target="_blank" rel="noopener">ATNF Pulsar Kataloğu</a>, McGill Magnetar Kataloğu,
+        BlackCAT, WATCHDOG, Green 2019 (süpernova kalıntıları), Sharpless 1959, Barnard 1927; uzaklık, yaş ve kütleler Hunt &amp; Reffert 2023,
+        Cantat-Gaudin vd. 2020, Baumgardt &amp; Hilker 2018, Harris 2010, González-Santamaría vd. 2021, Karachentsev vd. 2013 ve
+        Cosmicflows-4'ten (VizieR); her kartta kendi kaynakları yazar.
       </footer>
     </aside>
   </main>
@@ -104,6 +133,7 @@
   </script>
   <script src="js/draugr.js"></script>
   <script src="js/search.js"></script>
+  <script src="js/deepsky.js"></script>
   <script src="js/sky.js"></script>
   <script src="js/data.js"></script>
   <script src="js/fits.js"></script>
