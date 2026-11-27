@@ -15,7 +15,7 @@ from pathlib import Path
 
 import numpy as np
 
-from common import IGN, POS, load_config, mask_unseen_positives, read_image, read_labels
+from common import IGN, load_config, mask_unseen_positives, read_image, read_labels
 
 
 def sample_name(path):
@@ -27,24 +27,24 @@ def sample_name(path):
 
 
 def one(job):
-    fits_path, label_path, out_dir, cfg = job
+    fits_path, label_path, extra_path, out_dir, cfg = job
     name = sample_name(fits_path)
     done = out_dir / f"{name}_lab.npz"
     if done.exists():
         z = np.load(done)
         x = np.load(out_dir / f"{name}.npy", mmap_mode="r")
         return dict(name=name, h=int(x.shape[1]), w=int(x.shape[2]), n=int(len(z["cls"])),
-                    n_pos=int((z["cls"] == POS).sum()), n_ign=int((z["cls"] == IGN).sum()),
+                    n_pos=int((z["cls"] > 0).sum()), n_ign=int((z["cls"] == IGN).sum()),
                     n_pos_unseen=int(z["n_pos_unseen"]) if "n_pos_unseen" in z.files else 0)
     x, valid, flagged = read_image(fits_path, cfg)
-    lab, n_unseen = mask_unseen_positives(read_labels(label_path, cfg), valid)
+    lab, n_unseen = mask_unseen_positives(read_labels(label_path, cfg, extra_path), valid)
     lab["n_pos_unseen"] = np.int64(n_unseen)
     np.save(out_dir / f"{name}.npy", x.astype(np.float16))
     # 0 = veri yok, 1 = temiz, 2 = veri var ama bayrakli (kayipta ve olcumde yok sayilir)
     np.save(out_dir / f"{name}_valid.npy", (valid.astype(np.uint8) + flagged.astype(np.uint8)))
     np.savez(done, **lab)
     return dict(name=name, h=int(x.shape[1]), w=int(x.shape[2]), n=int(len(lab["cls"])),
-                n_pos=int((lab["cls"] == POS).sum()), n_ign=int((lab["cls"] == IGN).sum()), n_pos_unseen=n_unseen)
+                n_pos=int((lab["cls"] > 0).sum()), n_ign=int((lab["cls"] == IGN).sum()), n_pos_unseen=n_unseen)
 
 
 def main():
@@ -71,14 +71,17 @@ def main():
             if not lp.exists():
                 print(f"  etiket yok, atlandi: {lp}")
                 continue
-            jobs.append((f, lp, out, cfg))
+            ep = data / cfg["extra_label_path"].format(split=split, name=sample_name(f)) if cfg.get("extra_label_path") else None
+            if ep is not None and not ep.exists():
+                print(f"  ek etiket yok (ozellikler bos kalacak): {ep}")
+            jobs.append((f, lp, ep, out, cfg))
         t0 = time.time()
         with ProcessPoolExecutor(a.workers) as ex:
             items = list(ex.map(one, jobs, chunksize=2))
         (out / "index.json").write_text(json.dumps(items, indent=0), encoding="utf-8")
         n_pos = sum(i["n_pos"] for i in items)
         n_un = sum(i["n_pos_unseen"] for i in items)
-        print(f"{split}: {len(items)} goruntu, {n_pos} yildiz (+{n_un} verisiz pikselde, yok sayildi), "
+        print(f"{split}: {len(items)} goruntu, {n_pos} nesne (+{n_un} verisiz pikselde, yok sayildi), "
               f"{time.time() - t0:.0f} s")
 
 

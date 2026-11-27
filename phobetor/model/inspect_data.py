@@ -115,13 +115,15 @@ def main():
             x, valid, flagged = read_image(files[0], cfg)
             print(f"  goruntu okundu: {x.shape}, gecerli %{100 * valid.mean():.1f}, bayrakli %{100 * flagged.mean():.1f}")
             if lp.exists():
-                lab = read_labels(lp, cfg)
+                ep = root / cfg["extra_label_path"].format(split=split, name=name) if cfg.get("extra_label_path") else None
+                lab = read_labels(lp, cfg, ep)
                 n = len(lab["cls"])
-                print(f"  etiket okundu: {n} kaynak, yildiz {(lab['cls'] == 1).sum()}, yok sayilan {(lab['cls'] == -1).sum()}, "
-                      f"diger {(lab['cls'] == 0).sum()}")
+                per = ", ".join(f"{c['ad']} {(lab['cls'] == k).sum()}" for k, c in enumerate(cfg["classes"], start=1))
+                print(f"  etiket okundu: {n} kaynak; {per}, yok sayilan {(lab['cls'] == -1).sum()}, "
+                      f"hicbir sinif {(lab['cls'] == 0).sum()}")
                 inside = (lab["x"] >= 0) & (lab["x"] < x.shape[2]) & (lab["y"] >= 0) & (lab["y"] < x.shape[1])
                 print(f"  goruntu icinde kalan kaynak: %{100 * inside.mean():.1f}")
-                # koordinat kurali kontrolu: yildizlarin isik merkezi etiketle ayni yerde mi?
+                # koordinat kurali kontrolu: ilk sinifin (yildiz) isik merkezi etiketle ayni yerde mi?
                 H, W = x.shape[1:]
                 p = np.nonzero((lab["cls"] == 1) & inside)[0]
                 if len(p):
