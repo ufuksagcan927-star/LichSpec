@@ -1,0 +1,7 @@
+# Indirilen ve uretilen veri (buyuk dosyalar repoya girmez)
+data/
+data_hst/
+__pycache__/
+*.fits
+*.fits.gz
+*.parquet

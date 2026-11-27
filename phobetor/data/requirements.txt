@@ -1,0 +1,13 @@
+numpy
+scipy
+pandas
+pyarrow
+requests
+astropy>=7
+astroquery>=0.4.10
+photutils>=2
+sep>=1.4
+matplotlib
+fsspec
+aiohttp
+pillow
