@@ -20,6 +20,13 @@ const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 const flags = Object.fromEntries(process.argv.slice(2).filter((a) => a.startsWith("--")).map((a) => a.slice(2).split("=")));
 const [url, fitsPath, outDir = "site-check-out"] = args;
 if (!url) { console.error("usage: node tools/site_check.js <url> [fits] [out-dir]"); process.exit(2); }
+
+/** Exit after everything written to stdout and stderr has been handed to the pipe. A bare process.exit()
+ *  dropped the end of a long CI log once, RESULT lines included. */
+function finish(code) {
+  process.stdout.write("", () => process.stderr.write("", () => process.exit(code)));
+}
+
 fs.mkdirSync(outDir, { recursive: true });
 
 const CFA = "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv";
@@ -132,7 +139,7 @@ async function dumpShot(page, name, { full = false } = {}) {
   log(`alt-az drag ${altAz} · highest alt ${Math.max(...alts).toFixed(2)}° · at rest alt ${rest[9][0].toFixed(2)}° rotation ${rest[9][1].toFixed(1)}° · flips after release: ${flips}`);
   if (!altAz) failures.push("alt-az drag is not installed");
   if (Math.max(...alts) < 89 || Math.max(...alts) > 90.001) failures.push("dragging up did not stop at the zenith");
-  if (flips) failures.push("the view keeps flipping at the zenith");
+  if (flips) failures.push(`the view keeps flipping at the zenith (rotation after release: ${rest.map((r) => r[1].toFixed(1)).join(", ")})`);
 
   // The horizon is a straight line where Aladin projects it, and the ground is see-through by default:
   // the sky below the horizon shows; the "Yer" slider sets how much the ground covers (0 clear, 100 opaque).
@@ -337,5 +344,5 @@ async function dumpShot(page, name, { full = false } = {}) {
   badRequests.slice(0, 30).forEach((e) => log("  " + e));
   await browser.close();
   log("\n== RESULT:", failures.length ? "FAIL\n - " + failures.join("\n - ") : "PASS");
-  process.exit(failures.length ? 1 : 0);
-})().catch((e) => { console.error(e); process.exit(1); });
+  finish(failures.length ? 1 : 0);
+})().catch((e) => { console.error(e); finish(1); });

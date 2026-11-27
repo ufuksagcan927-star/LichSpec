@@ -17,6 +17,13 @@ const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 const flags = Object.fromEntries(process.argv.slice(2).filter((a) => a.startsWith("--")).map((a) => a.slice(2).split("=")));
 const [url, dir] = args;
 if (!url || !dir) { console.error("usage: node tools/photo_check.js <site-url> <photo-dir>"); process.exit(2); }
+
+/** Exit after everything written to stdout and stderr has been handed to the pipe. A bare process.exit()
+ *  dropped the end of a long CI log once, RESULT lines included. */
+function finish(code) {
+  process.stdout.write("", () => process.stderr.write("", () => process.exit(code)));
+}
+
 const cases = JSON.parse(fs.readFileSync(path.join(dir, "cases.json"), "utf8"));
 
 const D2R = Math.PI / 180;
@@ -172,5 +179,5 @@ function brightStarsInFrame(page) {
   if (errors.length) console.log("\n== page errors\n  " + errors.slice(0, 15).join("\n  "));
   console.log(`\n== PHOTO RESULT: ${failures.length ? "FAIL (" + failures.join(", ") + ")" : "PASS"}`);
   await browser.close();
-  process.exit(failures.length ? 1 : 0);
-})().catch((e) => { console.error(e); process.exit(1); });
+  finish(failures.length ? 1 : 0);
+})().catch((e) => { console.error(e); finish(1); });

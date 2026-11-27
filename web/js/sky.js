@@ -144,11 +144,26 @@
       nav.dec = dec;
     }
 
-    /** Ekranın yukarısı: bakılan noktadan yükseklik artan yöne (başucunda bile tanımlı). */
+    /**
+     * Ekranın yukarısı: bakılan noktadan yükseklik artan yöne. Başucu ve ayakucu yakınında (|yükseklik| ≥ 89,5°)
+     * yön açısı anlamını yitirir: orada yukarısı son bakılan yön açısının (nav.az) yatay doğrultusudur ve
+     * bakılan noktanın gerçek yerine izdüşürülür. Gök her 30 saniyede biraz dönüp merkezi başucundan
+     * kaydırınca görüntü böylece sıçramaz (eskiden başucuna bakarken ~11° dönüyordu).
+     */
     function uprightRotation() {
-      const a = nav.alt * R, A = nav.az * R, d = 0.01;
+      const h = altaz(nav.ra, nav.dec), d = 0.01;
+      const a = h.alt * R, A = h.az * R;
       const c = [Math.cos(a) * Math.cos(A), Math.cos(a) * Math.sin(A), Math.sin(a)];
-      const u = [-Math.sin(a) * Math.cos(A), -Math.sin(a) * Math.sin(A), Math.cos(a)];
+      let u;
+      if (Math.abs(h.alt) < 89.5) u = [-Math.sin(a) * Math.cos(A), -Math.sin(a) * Math.sin(A), Math.cos(a)];
+      else {
+        const s = h.alt > 0 ? -1 : 1, B = (nav.az ?? h.az) * R;          // başucunda yukarısı arkaya, ayakucunda öne
+        const T = [s * Math.cos(B), s * Math.sin(B), 0];
+        const k = T[0] * c[0] + T[1] * c[1];
+        u = T.map((t, i) => t - k * c[i]);
+        const n = Math.hypot(u[0], u[1], u[2]) || 1;
+        u = u.map((x) => x / n);
+      }
       const p = c.map((ci, i) => ci * Math.cos(d) + u[i] * Math.sin(d));
       const up = toRaDec(Math.asin(clamp1(p[2])) / R, Math.atan2(p[1], p[0]) / R);
       return -posAngle(nav.ra, nav.dec, up.ra, up.dec);
