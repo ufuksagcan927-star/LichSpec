@@ -1,0 +1,30 @@
+name: Sky object tables
+
+# tools/build_sky_objects.py galaksi, bulutsu, küme, pulsar ve kara delik kataloğunu OpenNGC ile
+# yayımlanmış kataloglardan (VizieR) kurar. Bu iş o tabloları indirir ve iş çıktısı olarak saklar;
+# günlüğe de base64 olarak yazar (çıktı indirilemeyen ortamlar için). Katalog yenilenirken çalıştır.
+on:
+  push:
+    branches: ['claude/**']
+    paths: ['tools/fetch_sky_tables.py', '.github/workflows/sky-tables.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch the catalogues
+        run: python -u tools/fetch_sky_tables.py --out sky-tables --print
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sky-tables
+          path: sky-tables

@@ -74,7 +74,7 @@ function brightStarsInFrame(page) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
   if (flags["force-wasm"] === "1") await page.addInitScript(() => { window.LICH_FORCE_WASM = true; });
   if (flags["aladin-local"]) {
-    await page.route("https://cdn.jsdelivr.net/npm/aladin-lite@3.6.5/dist/aladin.js",
+    await page.route(/^https:\/\/cdn\.jsdelivr\.net\/npm\/aladin-lite@[^/]+\/dist\/aladin\.js$/,
       (r) => r.fulfill({ path: flags["aladin-local"], contentType: "application/javascript" }));
   }
   if (flags["ort-local"]) {

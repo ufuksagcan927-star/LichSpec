@@ -51,6 +51,14 @@ select {
   background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; font: inherit;
 }
 .toggle { display: flex; gap: 6px; align-items: center; color: var(--muted); white-space: nowrap; }
+.toggle.ground input { width: 72px; margin: 0; accent-color: var(--violet); cursor: pointer; }
+.toggle.ground.off { opacity: .45; }
+/* dar ekranda Yer ayarı üst çubuk yerine gökyüzünün sağ üst köşesinde (app.js taşır) */
+.ground-chip {
+  position: absolute; right: 8px; top: 8px; z-index: 20; display: flex; align-items: center;
+  background: #0b0d17cc; border: 1px solid var(--line); border-radius: 8px; padding: 3px 8px; font-size: 12px;
+}
+.ground-chip[hidden] { display: none; }
 .btn { border: 1px solid var(--line); background: var(--bg-3); border-radius: 8px; padding: 8px 14px; }
 .btn.primary { background: linear-gradient(90deg, var(--violet), var(--pink)); border: 0; color: #fff; font-weight: 600; }
 .btn:disabled { opacity: .5; cursor: default; }
@@ -215,6 +223,7 @@ dialog.upload::backdrop { background: #05060cb3; }
   .search input { padding: 6px 10px; }
   .top-actions { gap: 8px; flex: 1 1 auto; justify-content: flex-end; }
   .toggle { font-size: 12px; gap: 4px; }
+  .toggle.ground input { width: 56px; }
   .place-chip { left: 8px; top: 8px; }
   .btn { padding: 6px 10px; }
   .sky-status { display: none; }

@@ -4,7 +4,8 @@
  *   node tools/site_check.js <site-url> [fits-file] [out-dir] [--aladin-local=<path to aladin.js>]
  *                            [--dump-shots=1] [--readme-shots=1]
  *
- * Loads the site, drags the view up through the zenith, checks the ground is opaque, tries the
+ * Loads the site, drags the view up through the zenith, checks the flat (gnomonic) view, the straight
+ * horizon and the see-through ground with its opacity slider, tries the
  * search (typos, Turkish names, constellations), zooms into M67, waits for Gaia DR3 stars, clicks
  * one, checks the generated star card, uploads a FITS image and checks the plate solution. From inside
  * the browser it also probes every external data service the static site depends on, so
@@ -65,7 +66,7 @@ async function dumpShot(page, name, { full = false } = {}) {
   page.on("requestfailed", (r) => badRequests.push(`${r.failure() && r.failure().errorText} ${r.url().slice(0, 160)}`));
   page.on("response", (r) => { if (r.status() >= 400) badRequests.push(`HTTP ${r.status()} ${r.url().slice(0, 160)}`); });
   if (flags["aladin-local"]) {
-    await page.route("https://cdn.jsdelivr.net/npm/aladin-lite@3.6.5/dist/aladin.js",
+    await page.route(/^https:\/\/cdn\.jsdelivr\.net\/npm\/aladin-lite@[^/]+\/dist\/aladin\.js$/,
       (r) => r.fulfill({ path: flags["aladin-local"], contentType: "application/javascript" }));
   }
 
@@ -80,7 +81,7 @@ async function dumpShot(page, name, { full = false } = {}) {
   await page.waitForTimeout(6000);
   await page.screenshot({ path: path.join(outDir, "1_home.png") });
 
-  log("\n== sky view (from the ground: stereographic, horizon, constellations)");
+  log("\n== sky view (from the ground: flat camera-like projection, horizon, constellations)");
   const view = await page.evaluate(() => {
     const L = window.lichspec, a = L.aladin;
     const cv = document.querySelector(".sky-overlay");
@@ -97,7 +98,7 @@ async function dumpShot(page, name, { full = false } = {}) {
     };
   });
   log(JSON.stringify(view));
-  if (view.projection !== "Stereographic") failures.push("sky is not in the stereographic (from-the-ground) projection");
+  if (view.projection !== "Tangential") failures.push("sky is not in the flat gnomonic (TAN) projection");
   if (!/bakıyorsun/.test(view.status)) failures.push("sky status does not say where you are looking");
   if (!view.groundAlpha) failures.push("ground/horizon overlay not drawn");
   if (flags["dump-shots"]) await dumpShot(page, "home");
@@ -132,14 +133,27 @@ async function dumpShot(page, name, { full = false } = {}) {
   if (Math.max(...alts) < 89 || Math.max(...alts) > 90.001) failures.push("dragging up did not stop at the zenith");
   if (flips) failures.push("the view keeps flipping at the zenith");
 
+  // The horizon is a straight line where Aladin projects it, and the ground is see-through by default:
+  // the sky below the horizon shows; the "Yer" slider sets how much the ground covers (0 clear, 100 opaque).
   const ground = await page.evaluate(async () => {
-    lichspec.sky.look(5, 180, 60);
-    await new Promise((r) => setTimeout(r, 600));
-    const cv = document.querySelector(".sky-overlay");
-    return [...cv.getContext("2d").getImageData(Math.floor(cv.width / 2), Math.floor(cv.height * 0.85), 1, 1).data];
+    const sky = lichspec.sky, a = lichspec.aladin;
+    const wait = () => new Promise((r) => setTimeout(r, 500));
+    const alpha = () => { const cv = document.querySelector(".sky-overlay"); return cv.getContext("2d").getImageData(Math.floor(cv.width / 2), Math.floor(cv.height * 0.85), 1, 1).data[3]; };
+    const slide = (v) => { const el = document.querySelector("#ground-alpha"); el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); };
+    sky.look(5, 180, 60);
+    await wait();
+    const lst = LichSky.lst(sky.now, sky.place.lon);
+    const ys = [150, 180, 210].map((az) => { const e = LichSky.hor2eq(0, az, lst, sky.place.lat); const p = a.world2pix(e.ra, e.dec); return p ? p[1] : NaN; });
+    const out = { horizonY: sky.horizonY(), aladinYs: ys, alphaDefault: alpha() };
+    slide(100); await wait(); out.alpha100 = alpha();
+    slide(0); await wait(); out.alpha0 = alpha();
+    slide(30); await wait();
+    return out;
   });
-  log("ground pixel looking 5° up, 85% down the view:", JSON.stringify(ground));
-  if (ground[3] !== 255) failures.push("the ground is not opaque");
+  log("horizon and ground looking 5° up:", JSON.stringify(ground));
+  if (!ground.aladinYs.every((y) => Math.abs(y - ground.horizonY) < 2)) failures.push("the horizon line is not straight or not where the sky puts it");
+  if (!(ground.alphaDefault > 40 && ground.alphaDefault < 120)) failures.push("the ground is not see-through by default");
+  if (ground.alpha100 !== 255 || ground.alpha0 !== 0) failures.push("the ground slider does not set how much the ground covers");
 
   log("\n== search");
   for (const [q, want] of [["proxima centuri", "Proxima Centauri"], ["alfa erboğa", "Rigil Kentaurus"],
