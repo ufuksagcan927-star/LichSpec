@@ -205,7 +205,9 @@ async function dumpShot(page, name, { full = false } = {}) {
   }
   await page.press("#search-input", "Escape");
   // a card opened from the sky: the Andromeda Galaxy is drawn in the middle of the view, a click next to its
-  // centre opens its card (not on M42: the Trapezium star sits on its centre and a click there opens the star)
+  // centre opens its card (not on M42: the Trapezium star sits on its centre and a click there opens the star).
+  // Barnard's Star was the last star in the middle of the screen. Aladin keeps a star's last screen position
+  // once it is more than 90° away in the flat view, and a click there used to open Barnard's Star again.
   await page.evaluate(() => { document.querySelector("#search-input").blur(); lichspec.aladin.gotoRaDec(10.685, 41.269); lichspec.aladin.setFoV(8); });
   await page.waitForTimeout(1500);
   const m31 = await page.evaluate(() => { const p = lichspec.aladin.world2pix(10.72, 41.30); const b = document.querySelector("#aladin").getBoundingClientRect(); return p && [b.left + p[0], b.top + p[1]]; });

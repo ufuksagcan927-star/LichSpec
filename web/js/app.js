@@ -54,10 +54,25 @@
     magLimit = fov > 100 ? 5.0 : fov > 60 ? 5.6 : fov > 25 ? 6.3 : fov > 8 ? 9 : 99;
   }
 
+  /**
+   * Aladin bir kaynağın ekran konumunu yalnız kaynak izdüşüme sığdıkça günceller. Düz (TAN) görünümde
+   * merkezden 90°'den uzaklaşan bir yıldız son çizildiği yerde "kalır": oraya tıklamak onu seçer, fare
+   * üstüne gelince orada çizilirdi (Barnard Yıldızı'ndan Andromeda'ya atlayınca galaksinin ortası
+   * Barnard Yıldızı'nı açıyordu). Gerçek izdüşümü kayıtlı konumla örtüşmeyen kaynak ekranda değildir.
+   */
+  function onScreen(source) {
+    if (!source || source.ra == null || source.x == null) return true;   // konumu olmayan katman nesnesi
+    const p = aladin.world2pix(source.ra, source.dec);
+    return !!p && Math.hypot(p[0] - source.x, p[1] - source.y) < 10;
+  }
+  /** Aladin seçili ya da üstüne gelinen kaynağı ayrıca, kayıtlı konumunda çizer: eskimiş konumda çizme. */
+  const stale = (source) => (source.isHovered || source.isSelected) && !onScreen(source);
+
   function drawStar(source, ctx) {
     const s = source.data.star;
     const mag = s.v ?? s.g ?? 6.5;   // Gaia'dan gelenlerde V yok, G var
     if (mag > magLimit && s !== selected) return;
+    if (stale(source)) return;
     const r = starRadius(mag);
     if (s === selected) {
       ctx.beginPath();
@@ -190,6 +205,7 @@
 
     let clickedObject = false;
     aladin.on("objectClicked", (obj) => {
+      if (obj && !onScreen(obj)) return;   // ekrandan çıkmış bir yıldızın eski yeri: tıklama derin göğe ya da noktaya gider
       if (obj && obj.data && obj.data.star) { clickedObject = true; showStar(obj.data.star, { goto: false }); }
       else if (obj && obj.data && obj.data.gaia) { clickedObject = true; openGaiaStar(obj.data.gaia); }
       else if (obj && obj.data && (obj.data.Source || obj.data.source_id)) {   // HiPS kataloğundan gelen satır
@@ -304,6 +320,7 @@
   }
 
   function drawGaia(source, ctx) {
+    if (stale(source)) return;
     const g = source.data.gaia;
     const m = g.phot_g_mean_mag ?? 18;
     const r = Math.max(1.1, Math.min(5, 4.6 - 0.22 * (m - 8)));
@@ -316,6 +333,7 @@
   }
 
   function drawGaiaHips(source, ctx) {
+    if (stale(source)) return;
     const d = source.data;
     if (source._g === undefined) {
       source._g = parseFloat(d.Gmag ?? d.phot_g_mean_mag);

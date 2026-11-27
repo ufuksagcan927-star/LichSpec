@@ -380,6 +380,7 @@
           canvas.style.height = h + "px";
         }
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.lineJoin = "round";                                          // yazıların kalın kenarı köşelerde sivrilmesin
         ctx.clearRect(0, 0, w, h);
         if (state.lines) { drawLines(w, h); drawNames(w, h, longFov(w, h)); }
         if (layers.length) {                                             // derin gök simgeleri: yerin altında kalırsa yer örter

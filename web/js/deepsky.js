@@ -300,6 +300,7 @@
     ctx.textBaseline = "middle";
     ctx.textAlign = "left";                                     // sky.js takımyıldız adlarını ortalıyor
     ctx.setLineDash([]);
+    ctx.lineJoin = "round";                                     // kalın yazı kenarı "M" harfinde sivri uç bırakmasın
 
     function drawOne(o) {
       const c = v.c, u = o._u;
