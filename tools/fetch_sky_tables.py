@@ -6,7 +6,8 @@
 Every table comes from VizieR (CDS Strasbourg, or its CfA and IDIA mirrors) as tab-separated
 text with all columns plus J2000 positions in decimal degrees (_RAJ2000, _DEJ2000), and is saved
 as <out>/<catalogue id, "/" replaced by "_">.tsv. OpenNGC (NGC.csv, addendum.csv) comes from its
-GitHub repository. Cosmicflows-4 is large; only the galaxies OpenNGC lists (by PGC number) are kept.
+GitHub repository and the current ATNF Pulsar Catalogue (psrcat.db) from ATNF's psrcat package.
+Cosmicflows-4 is large; only the galaxies OpenNGC lists (by PGC number) are kept.
 
 With --print the folder is also written to the log as a base64 tar.gz between SKY-TABLES-BEGIN
 and SKY-TABLES-END lines, so the tables can be copied out of a CI log.
@@ -29,6 +30,7 @@ MIRRORS = [
     "https://vizier.idia.ac.za/viz-bin/asu-tsv",
 ]
 OPENNGC = "https://raw.githubusercontent.com/mattiaverga/OpenNGC/master/database_files/"
+ATNF = "https://www.atnf.csiro.au/research/pulsar/psrcat/downloads/psrcat_pkg.tar.gz"
 
 # (VizieR id, what it is). A catalogue id without a table name fetches all its tables.
 TABLES = [
@@ -55,10 +57,30 @@ TABLES = [
 FILTER_PGC = {"J/ApJ/944/94/table2"}
 
 
-def get(url, timeout):
+def get_bytes(url, timeout):
     req = urllib.request.Request(url, headers={"User-Agent": "lichspec-catalogue-builder"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read().decode("utf-8", "replace")
+        return r.read()
+
+
+def get(url, timeout):
+    return get_bytes(url, timeout).decode("utf-8", "replace")
+
+
+def psrcat(out):
+    """The current ATNF Pulsar Catalogue database (psrcat.db) from ATNF's own package.
+
+    VizieR's copy (B/psr) dates from 2017; it is still fetched because it carries the distances
+    psrcat derives from the dispersion measure.
+    """
+    data = get_bytes(ATNF, 180)
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
+        for m in tar.getmembers():
+            if m.isfile() and Path(m.name).name == "psrcat.db":
+                text = tar.extractfile(m).read().decode("utf-8", "replace")
+                (out / "psrcat.db").write_text(text, encoding="utf-8")
+                return text
+    raise RuntimeError("psrcat.db not in the package")
 
 
 def vizier(source, timeout=240):
@@ -135,6 +157,22 @@ def main():
     print(f"OpenNGC: {len(pgcs)} PGC numbers", flush=True)
 
     failed = []
+    try:
+        text = psrcat(out)
+        lines = text.splitlines()
+        fields = {}
+        for ln in lines:
+            k = ln.split()[0] if ln.strip() and not ln.startswith(("#", "@")) else None
+            if k:
+                fields[k] = fields.get(k, 0) + 1
+        print(f"OK   psrcat.db: {len(text) / 1024:.0f} KB, {sum(ln.startswith('@') for ln in lines)} pulsars; "
+              f"{' | '.join(ln for ln in lines[:6] if ln.startswith('#'))}", flush=True)
+        print("     fields: " + ", ".join(f"{k} {n}" for k, n in sorted(fields.items(), key=lambda x: -x[1])), flush=True)
+        print("     first record: " + " / ".join(lines[next(i for i, ln in enumerate(lines) if ln.startswith("PSRJ")):][:30]),
+              flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"FAIL psrcat.db (ATNF Pulsar Catalogue, current version): {e}", flush=True)
+        failed.append("psrcat.db")
     for source, what in TABLES:
         try:
             text, mirror, dt = vizier(source)
