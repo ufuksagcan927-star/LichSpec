@@ -98,7 +98,10 @@ def tile_extra(tile, cache):
             d["z_foto_alt"] = _clean(r68[:, 0]).to_numpy()
             d["z_foto_ust"] = _clean(r68[:, 1]).to_numpy()
         if "kuasar_z" in d:
-            d.loc[d.kuasar_veri_eksik.astype(bool), "kuasar_z"] = np.nan
+            # "Missing-data-flag" Q1'de butun satirlarda acik (bazi dis bantlarin eksik oldugunu gosteriyor,
+            # uydurulmus deger degil); kuasar olarak siniflananlarda Z 0.65-6 arasinda, fiziksel.
+            # z = 0 basarisiz uydurma sayilir.
+            d.loc[d.kuasar_z <= 0, "kuasar_z"] = np.nan
         parts.append(d.drop_duplicates("object_id").set_index("object_id"))
         os.remove(p)
     tmp.rmdir()
