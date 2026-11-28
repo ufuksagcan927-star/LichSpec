@@ -58,7 +58,7 @@
    "match_radius_px": 3.0
   }
  ],
- "ignore": "sinif == 'yok_say'",
+  "ignore": "sinif == 'yok_say' or baska_bolumde == True",
  "size_col": "buyuk_eksen_px",
  "size_sigma_frac": 0.1,
  "size_sigma_max": 12.0,

@@ -133,10 +133,10 @@ def make_field(r, cat, out, seed):
         return None
     from reproject import reproject_interp
     w, n, scale = target_wcs(r.fra, r.fdec, r.fov)
-    got = fetch(r.fra, r.fdec, r.fov * 1.1, ["poss2ukstu_blue", "poss2ukstu_red", "poss2ukstu_ir"])
+    got = fetch(r.fra, r.fdec, min(r.fov * 1.1, 60.0), ["poss2ukstu_blue", "poss2ukstu_red", "poss2ukstu_ir"])
     if any(b2 not in got for _, b2, b1 in BANDS if b1):
         try:  # varsayilan istek, varsa DSS1 bantlarini da getirir
-            got.update({k: v for k, v in fetch(r.fra, r.fdec, r.fov * 1.1, []).items() if k not in got})
+            got.update({k: v for k, v in fetch(r.fra, r.fdec, min(r.fov * 1.1, 60.0), []).items() if k not in got})
         except Exception:  # noqa: BLE001
             pass
     if "dss2red" not in got and "dss1red" not in got:
