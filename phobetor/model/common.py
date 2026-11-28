@@ -30,6 +30,10 @@ DEFAULTS = dict(
     extra_label_path=None,      # ek etiket dosyasi (object_id ile birlesir), ornegin "{split}/etiketler_ek/{name}.csv"
     props=[],                   # nesne ozellikleri: [{"ad", "col", "tf": none|log10|log1p, "kind": reg|frac, "classes", ...}]
     class_weights=None,
+    size_col=None,              # nesne boyutu sutunu (piksel, buyuk eksen); verilirse isi haritasi ve esleme boyuta uyar
+    size_sigma_frac=0.1,        # isi haritasi genisligi = bu oran x boyut (en az heatmap_sigma_px)
+    size_sigma_max=12.0,
+    match_size_frac=0.25,       # esleme yaricapi = en az bu oran x boyut
     ignore="",                  # pandas query: kayipta yok sayilan kaynaklar
     stretch=3.0,                # asinh yumusatmasi, gurultu biriminde
     heatmap_sigma_px=1.0,
@@ -82,9 +86,11 @@ def read_image(fits_path, cfg):
 def normalize(sci, noise, flag, cfg):
     sci = [np.asarray(s, dtype=np.float32) for s in sci]
     valid = np.ones(sci[0].shape, bool)
-    for s in sci:
-        valid &= np.isfinite(s)
-    valid &= sci[0] != 0                        # Euclid kapsanmayan/sifirlanan pikseller (parlak yildiz merkezleri)
+    present = [bool(np.isfinite(s).any()) for s in sci]   # bu bolgede hic verisi olmayan bant (ornegin eksik plak)
+    for s, ok in zip(sci, present):
+        if ok:
+            valid &= np.isfinite(s)
+    valid &= sci[0] != 0 if present[0] else True  # Euclid kapsanmayan/sifirlanan pikseller (parlak yildiz merkezleri)
     out = []
     for i, s in enumerate(sci):
         s = np.where(np.isfinite(s), s, 0.0)
@@ -96,6 +102,9 @@ def normalize(sci, noise, flag, cfg):
             z = np.where(good, s / np.where(good, n, 1.0), 0.0)
             if i == 0:
                 valid &= good
+        elif not present[i]:
+            out.append(np.zeros_like(s, dtype=np.float32))
+            continue
         else:
             v = s[valid] if valid.any() else s.ravel()
             med = float(np.median(v))
@@ -158,17 +167,21 @@ def read_labels(csv_path, cfg, extra_path=None):
     props = np.full((len(d), len(cfg.get("props", []))), np.nan, np.float32)
     names = class_names(cfg)
     for j, pr in enumerate(cfg.get("props", [])):
-        if pr["col"] not in d:
+        if pr.get("expr"):
+            v = d.eval(pr["expr"]).to_numpy(np.float64) * float(pr.get("scale", 1.0))
+        elif pr["col"] in d:
+            v = d[pr["col"]].to_numpy(np.float64) * float(pr.get("scale", 1.0))
+        else:
             continue
-        v = d[pr["col"]].to_numpy(np.float64) * float(pr.get("scale", 1.0))
         lo, hi = pr.get("range", [-np.inf, np.inf])
         v = np.where((v >= lo) & (v <= hi), v, np.nan)
         if pr.get("query"):
             v = np.where(d.eval(pr["query"]).fillna(False).to_numpy(bool), v, np.nan)
         ok_cls = np.isin(cls, [names.index(c) + 1 for c in pr.get("classes", names)])
         props[:, j] = np.where(ok_cls, _tf(v, pr.get("tf", "none")), np.nan)
+    size = d[cfg["size_col"]].to_numpy(np.float32) if cfg.get("size_col") and cfg["size_col"] in d else np.full(len(d), np.nan, np.float32)
     return dict(x=d[cfg["x_col"]].to_numpy(np.float32), y=d[cfg["y_col"]].to_numpy(np.float32), cls=cls, mag=mag,
-                props=props)
+                props=props, size=size)
 
 
 def mask_unseen_positives(lab, valid):
@@ -208,6 +221,36 @@ def prop_stats(labs, cfg):
 # ----------------------------------------------------------------------------------------------
 # Egitim hedefleri (CenterNet tarzi, sinif basina isi haritasi)
 # ----------------------------------------------------------------------------------------------
+def _size(lab):
+    return lab["size"] if "size" in lab else np.full(len(lab["cls"]), np.nan, np.float32)
+
+
+def object_sigma(lab, cfg):
+    """Nesne basina isi haritasi genisligi: boyut biliniyorsa boyutla buyur (buyuk bulutsu = genis tepe)."""
+    s0 = float(cfg["heatmap_sigma_px"])
+    if not cfg.get("size_col"):
+        return np.full(len(lab["cls"]), s0, np.float32)
+    sz = _size(lab)
+    sig = np.clip(float(cfg["size_sigma_frac"]) * sz, s0, float(cfg["size_sigma_max"]))
+    return np.where(np.isfinite(sig), sig, s0).astype(np.float32)
+
+
+def label_margin(cfg):
+    """Kesit kenarindan bu kadar disaridaki nesneler de hedefe girer (isi haritasi kuyruklari)."""
+    return 6.0 if not cfg.get("size_col") else max(6.0, 3.0 * float(cfg["size_sigma_max"]))
+
+
+def _splat(hm, k, ix, iy, sigma):
+    h, w = hm.shape[1:]
+    r = max(1, int(np.ceil(3 * sigma)))
+    y0, y1, x0, x1 = max(0, iy - r), min(h, iy + r + 1), max(0, ix - r), min(w, ix + r + 1)
+    if y0 >= y1 or x0 >= x1:
+        return
+    yy, xx = np.mgrid[y0:y1, x0:x1]
+    g = np.exp(-((xx - ix) ** 2 + (yy - iy) ** 2) / (2 * sigma ** 2)).astype(np.float32)
+    np.maximum(hm[k, y0:y1, x0:x1], g, out=hm[k, y0:y1, x0:x1])
+
+
 def make_targets(lab, h, w, cfg, valid=None, stats=None):
     """Isi haritasi (K,H,W), alt-piksel kaymasi (2,H,W), tepe maskesi (K,H,W), kayip agirligi (1,H,W),
     ozellik degerleri (P,H,W) ve ozellik maskesi (P,H,W) (sadece nesne tepe pikselinde dolu)."""
@@ -228,15 +271,23 @@ def make_targets(lab, h, w, cfg, valid=None, stats=None):
         pr = lab["props"][p] if P else None
         ix, iy = np.floor(x + 0.5).astype(np.int64), np.floor(y + 0.5).astype(np.int64)
         inside = (ix >= 0) & (ix < w) & (iy >= 0) & (iy < h)
-        x, y, c, ix, iy = x[inside], y[inside], c[inside], ix[inside], iy[inside]
-        dy, dx = np.mgrid[-rad:rad + 1, -rad:rad + 1]
-        g = np.exp(-(dx ** 2 + dy ** 2) / (2 * sigma ** 2)).astype(np.float32)
-        cc = np.repeat(c, g.size)
-        yy = (iy[:, None, None] + dy[None]).ravel()
-        xx = (ix[:, None, None] + dx[None]).ravel()
-        vv = np.broadcast_to(g, (len(ix),) + g.shape).ravel()
-        ok = (xx >= 0) & (xx < w) & (yy >= 0) & (yy < h)
-        np.maximum.at(hm, (cc[ok], yy[ok], xx[ok]), vv[ok])
+        if cfg.get("size_col"):
+            # boyuta uyan tepe; merkezi kesit disinda kalan nesnelerin kuyrugu da cizilir
+            sig_all = object_sigma(lab, cfg)[p]
+            ax_, ay_ = np.floor(x + 0.5).astype(np.int64), np.floor(y + 0.5).astype(np.int64)
+            for k_, ix_, iy_, s_ in zip(c, ax_, ay_, sig_all):
+                _splat(hm, int(k_), int(ix_), int(iy_), float(s_))
+            x, y, c, ix, iy = x[inside], y[inside], c[inside], ix[inside], iy[inside]
+        else:
+            x, y, c, ix, iy = x[inside], y[inside], c[inside], ix[inside], iy[inside]
+            dy, dx = np.mgrid[-rad:rad + 1, -rad:rad + 1]
+            g = np.exp(-(dx ** 2 + dy ** 2) / (2 * sigma ** 2)).astype(np.float32)
+            cc = np.repeat(c, g.size)
+            yy = (iy[:, None, None] + dy[None]).ravel()
+            xx = (ix[:, None, None] + dx[None]).ravel()
+            vv = np.broadcast_to(g, (len(ix),) + g.shape).ravel()
+            ok = (xx >= 0) & (xx < w) & (yy >= 0) & (yy < h)
+            np.maximum.at(hm, (cc[ok], yy[ok], xx[ok]), vv[ok])
         hm[c, iy, ix] = 1.0
         pos[c, iy, ix] = 1.0
         off[0, iy, ix] = x - ix
@@ -252,7 +303,18 @@ def make_targets(lab, h, w, cfg, valid=None, stats=None):
                 pm[j, iy[f], ix[f]] = 1.0
 
     q = lab["cls"] == IGN
-    if q.any():
+    if q.any() and cfg.get("size_col"):
+        # yok sayilan buyuk nesneler (yildiz birligi vb.): boyutlarinin yarisi kadar daire kayipta yok
+        r0 = float(cfg["ignore_radius_px"])
+        for xq, yq, sq in zip(lab["x"][q], lab["y"][q], _size(lab)[q]):
+            r = max(r0, 0.5 * float(sq)) if np.isfinite(sq) else r0
+            ri = int(np.ceil(r))
+            cx, cy = int(np.floor(xq + 0.5)), int(np.floor(yq + 0.5))
+            y0, y1, x0, x1 = max(0, cy - ri), min(h, cy + ri + 1), max(0, cx - ri), min(w, cx + ri + 1)
+            if y0 < y1 and x0 < x1:
+                yy, xx = np.mgrid[y0:y1, x0:x1]
+                wgt[y0:y1, x0:x1][((xx - cx) ** 2 + (yy - cy) ** 2) <= r * r] = 0.0
+    elif q.any():
         r = float(cfg["ignore_radius_px"])
         ri = int(np.ceil(r))
         ix = np.floor(lab["x"][q] + 0.5).astype(np.int64)
@@ -311,8 +373,11 @@ def match(det, lab, cfg):
         return dict(tgt=tgt, ign=ign)
     order = np.argsort(-det[:, 2], kind="stable")
     px, py, pr = lab["x"][p], lab["y"][p], rad[lab["cls"][p]]
+    if cfg.get("size_col"):
+        sz = _size(lab)[p]
+        pr = np.where(np.isfinite(sz), np.maximum(pr, float(cfg["match_size_frac"]) * sz), pr).astype(np.float32)
     tree = cKDTree(np.stack([px, py], 1)) if len(p) else None
-    rmax = float(rad.max()) if len(p) else 0.0
+    rmax = float(pr.max()) if len(p) else 0.0
     q = lab["cls"] == IGN
     itree = cKDTree(np.stack([lab["x"][q], lab["y"][q]], 1)) if q.any() else None
     ir = max(float(cfg["match_radius_px"]), float(cfg["ignore_radius_px"]))

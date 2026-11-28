@@ -1,0 +1,105 @@
+{
+ "_aciklama": "Genis alan (genis_v1): DSS2 mavi / kirmizi / kizilotesi goruntuleri, OpenNGC (NGC/IC) etiketleri. Bulutsu, yildiz kumesi ve buyuk galaksi bulma ve siniflama; nesne boyutu ve basikligi.",
+ "bands": [
+  "DSS_KIRMIZI",
+  "DSS_MAVI",
+  "DSS_KIZILOTESI"
+ ],
+ "noise": null,
+ "image_glob": "{split}/goruntuler/*.fits",
+ "label_path": "{split}/etiketler/{name}.csv",
+ "x_col": "x",
+ "y_col": "y",
+ "mag_col": "parlaklik",
+ "classes": [
+  {
+   "ad": "galaksi",
+   "query": "sinif == 'galaksi'",
+   "match_radius_px": 3.0
+  },
+  {
+   "ad": "acik_kume",
+   "query": "sinif == 'acik_kume'",
+   "match_radius_px": 3.0
+  },
+  {
+   "ad": "kuresel_kume",
+   "query": "sinif == 'kuresel_kume'",
+   "match_radius_px": 3.0
+  },
+  {
+   "ad": "gezegenimsi_bulutsu",
+   "query": "sinif == 'gezegenimsi_bulutsu'",
+   "match_radius_px": 3.0
+  },
+  {
+   "ad": "salma_bulutsusu",
+   "query": "sinif == 'salma_bulutsusu'",
+   "match_radius_px": 3.0
+  },
+  {
+   "ad": "yansima_bulutsusu",
+   "query": "sinif == 'yansima_bulutsusu'",
+   "match_radius_px": 3.0
+  },
+  {
+   "ad": "supernova_kalintisi",
+   "query": "sinif == 'supernova_kalintisi'",
+   "match_radius_px": 3.0
+  },
+  {
+   "ad": "bulutsu",
+   "query": "sinif == 'bulutsu'",
+   "match_radius_px": 3.0
+  },
+  {
+   "ad": "kume_ve_bulutsu",
+   "query": "sinif == 'kume_ve_bulutsu'",
+   "match_radius_px": 3.0
+  }
+ ],
+ "ignore": "sinif == 'yok_say'",
+ "size_col": "buyuk_eksen_px",
+ "size_sigma_frac": 0.1,
+ "size_sigma_max": 12.0,
+ "match_size_frac": 0.25,
+ "props": [
+  {
+   "ad": "boyut_px",
+   "col": "buyuk_eksen_px",
+   "tf": "log10",
+   "range": [
+    1.0,
+    5000.0
+   ]
+  },
+  {
+   "ad": "eksen_orani",
+   "expr": "kucuk_eksen_yaydk / buyuk_eksen_yaydk",
+   "col": "",
+   "range": [
+    0.03,
+    1.0
+   ]
+  }
+ ],
+ "stretch": 3.0,
+ "heatmap_sigma_px": 1.5,
+ "match_radius_px": 3.0,
+ "ignore_radius_px": 4.0,
+ "crop": 384,
+ "pos_crop_prob": 0.7,
+ "mag_bins": [
+  0,
+  6,
+  8,
+  10,
+  11,
+  12,
+  13,
+  14,
+  15,
+  20
+ ],
+ "base_channels": 32
+}

@@ -17,7 +17,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from common import class_names, decode, finalize_config, make_targets, match, prop_errors, prop_stats, recall_by_mag, summarize
+from common import class_names, decode, finalize_config, label_margin, make_targets, match, prop_errors, prop_stats, recall_by_mag, summarize
 from net import PhobetorNet, focal_loss, offset_loss, prop_loss
 
 
@@ -42,6 +42,8 @@ class CacheSplit:
             lab = {k: z[k] for k in z.files}
             if "props" not in lab:
                 lab["props"] = np.zeros((len(lab["cls"]), 0), np.float32)
+            if "size" not in lab:
+                lab["size"] = np.full(len(lab["cls"]), np.nan, np.float32)
             self._lab[name] = lab
         return self._lab[name]
 
@@ -81,7 +83,12 @@ class Patches(Dataset):
         j = int(rng.integers(len(self.split)))
         x, v, lab = self.split.get(j)
         H, W = x.shape[1], x.shape[2]
-        c = min(int(cfg["crop"]), H, W)
+        c = int(cfg["crop"])
+        if H < c or W < c:  # kucuk goruntu: kesit boyutuna kadar bos (gecersiz) piksellerle doldurulur
+            pad = ((0, 0), (0, max(0, c - H)), (0, max(0, c - W)))
+            x = np.pad(np.asarray(x, dtype=np.float32), pad)
+            v = np.pad(np.asarray(v), pad[1:])
+            H, W = x.shape[1], x.shape[2]
         present = [k for k in range(1, len(cfg["classes"]) + 1) if (lab["cls"] == k).any()]
         if present and rng.random() < cfg["pos_crop_prob"]:
             # once bir sinif, sonra o siniftan bir nesne: az bulunan siniflar (yildiz, kuasar) daha sik gorulur
@@ -95,8 +102,9 @@ class Patches(Dataset):
             x0, y0 = int(rng.integers(0, W - c + 1)), int(rng.integers(0, H - c + 1))
         img = np.asarray(x[:, y0:y0 + c, x0:x0 + c], dtype=np.float32)
         val = np.asarray(v[y0:y0 + c, x0:x0 + c]) == 1   # kayip sadece temiz piksellerde
-        m = (lab["x"] >= x0 - 6) & (lab["x"] < x0 + c + 6) & (lab["y"] >= y0 - 6) & (lab["y"] < y0 + c + 6)
-        sub = {k2: lab[k2][m] for k2 in ("x", "y", "cls", "mag", "props")}
+        mg = label_margin(cfg)
+        m = (lab["x"] >= x0 - mg) & (lab["x"] < x0 + c + mg) & (lab["y"] >= y0 - mg) & (lab["y"] < y0 + c + mg)
+        sub = {k2: lab[k2][m] for k2 in ("x", "y", "cls", "mag", "props", "size")}
         sub["x"] = sub["x"] - x0
         sub["y"] = sub["y"] - y0
         if self.aug:
